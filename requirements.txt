@@ -1,0 +1,3 @@
+# Install this project and its dependencies as declared in pyproject.toml.
+# Currently uses only the Python standard library; no runtime dependencies.
+-e .
