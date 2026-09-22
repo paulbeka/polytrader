@@ -1,0 +1,2 @@
+# Optional notebook and analysis tools, declared in pyproject.toml.
+-e .[sandbox]

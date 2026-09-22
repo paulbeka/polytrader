@@ -8,5 +8,6 @@ dist/
 .env
 .env.*
 !.env.example
-data/
-runs/
+/data/
+/runs/
+.ipynb_checkpoints/

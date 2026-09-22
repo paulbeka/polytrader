@@ -1,8 +1,10 @@
 # Polytrader
 
-Fetch public Polymarket event metadata and historical outcome prices. This first
-version provides data fetching only. No account, API key, or paid service is needed.
-Python 3.11+; no runtime dependencies.
+Foundations for Polymarket research and an eventual automation bot. The data layer
+can be imported from Python scripts, notebooks, or future bot code; the CLI is
+another way to call it. Currently implements public event metadata and historical
+outcome prices. No account, API key, or paid service is needed.
+Python 3.11+; the core package has no runtime dependencies.
 
 ## Setup (PowerShell)
 
@@ -15,6 +17,73 @@ python -m pip install -e .
 If PowerShell blocks activation, use `.\.venv\Scripts\python.exe` and
 `.\.venv\Scripts\polytrader.exe` directly. If using uv, the equivalent setup is
 `uv venv --python 3.12` followed by `uv pip install -e .`.
+
+## Use from Python
+
+Load a history file already downloaded by the CLI, from the repository root:
+
+```python
+from polytrader.data import load_history
+
+history = load_history("data/lepen-history-7d.json")  # Use your own saved file.
+points = history.data         # List of price-point dictionaries.
+metadata = history.metadata   # Token ID, time window, market details, etc.
+```
+
+Fetch directly into Python with the same date options as the CLI:
+
+```python
+from polytrader.data import fetch_price_history
+
+recent = fetch_price_history(
+    token_id=history.metadata["token_id"],
+    days=7,
+    bucket_seconds=300,
+)
+
+# Or select a market and outcome within an event:
+# recent = fetch_price_history(
+#     "<event-slug>", market="<market-slug>", outcome="Yes",
+#     start="2026-09-01", end="2026-09-08",
+# )
+
+recent.save("data/recent-history.json")  # Optional; refuses to overwrite.
+```
+
+`fetch_price_history()` returns a `PriceHistory` object without printing or
+writing files. Empty responses have `history.data == []`. Invalid arguments raise
+`ValueError`; API failures raise `polytrader.data.DataError`. `load_history()` reads
+the existing JSON format without making network requests. Relative file paths are
+relative to your Python process's working directory.
+
+## Notebooks and analysis
+
+Install the optional analysis dependencies:
+
+```powershell
+python -m pip install -r requirements-sandbox.txt
+```
+
+Then convert either loaded or freshly fetched history into a pandas DataFrame:
+
+```python
+df = history.to_frame()
+print(df.head())
+df["price"].plot(title="Outcome price", ylabel="Price")
+```
+
+The frame has a UTC `datetime` index and `timestamp`, `price`, and
+`resolution_seconds` columns. Conversion sorts by time without filling gaps,
+resampling, or dropping points with shared timestamps. Metadata remains available
+on `history.metadata`; `.to_dict()` returns the original JSON-shaped envelope.
+
+Start with [sandbox/01_history.ipynb](sandbox/01_history.ipynb) and select `.venv`
+as its kernel in VS Code. It loads and plots local history; fresh API calls are
+optional. See [sandbox/README.md](sandbox/README.md) for setup details.
+
+`src/polytrader/bot/` is the place for future automation code. It currently contains
+only a package placeholder and guidance; reusable bot code can import the data
+layer directly, just like the notebook.
 
 ## Find markets and outcome tokens
 
@@ -94,12 +163,17 @@ python -m polytrader --help
 
 ```text
 src/polytrader/
-    cli.py              # Commands and JSON output
+    bot/                # Future automation code (placeholder)
+    cli.py              # CLI wrapper around the Python data API
     data/
+        api.py          # fetch_price_history() orchestration
         client.py       # Public HTTP requests, timeouts, and errors
+        dataset.py      # PriceHistory, loading/saving, optional DataFrame support
         discovery.py    # Event to markets to outcome tokens
         history.py      # UTC windows, chunking, and pagination
-tests/test_data.py       # Offline tests; no API calls
+sandbox/
+    01_history.ipynb     # Load, inspect, and plot saved history
+tests/                  # Offline tests; no API calls
 ```
 
 Downloaded data, local environments, and secrets are ignored by Git.

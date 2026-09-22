@@ -1,14 +1,11 @@
 """Command-line access to event metadata and historical prices."""
 
 import argparse
-from datetime import datetime
 import json
 from pathlib import Path
 import sys
 
-from polytrader.data.client import DataError, HISTORY_URL, PolymarketClient
-from polytrader.data.discovery import discover, select_market, select_token
-from polytrader.data.history import UTC, fetch_history, resolve_window
+from polytrader.data import DataError, PolymarketClient, discover, fetch_price_history
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,48 +41,19 @@ def run(args: argparse.Namespace, client: PolymarketClient) -> None:
                 print("  No CLOB outcome tokens available.")
         return
 
-    if bool(args.event) == bool(args.token_id):
-        raise ValueError("Provide an event URL/slug OR --token-id.")
-    if args.token_id and (args.market is not None or args.outcome is not None):
-        raise ValueError("--market and --outcome apply only when an event is provided.")
-    start, end = resolve_window(start=args.start, end=args.end, days=args.days)
-    if args.bucket_seconds is not None and not 60 <= args.bucket_seconds <= 86400:
-        raise ValueError("--bucket-seconds must be between 60 and 86400.")
     if args.output and args.output.exists():
         raise ValueError(f"Output already exists: {args.output}; choose a new filename.")
-    metadata = {}
-    token_id = args.token_id
-    if args.event:
-        event, markets = discover(client, args.event)
-        market = select_market(markets, args.market)
-        label, token_id = select_token(market, args.outcome or "Yes")
-        metadata = {
-            "event": {key: event.get(key) for key in ("id", "slug", "title")},
-            "market": market.raw, "outcome": label,
-        }
-    points = fetch_history(client, token_id, start, end, args.bucket_seconds)
-    result = {
-        "source": HISTORY_URL,
-        "fetched_at": datetime.now(UTC).isoformat(),
-        "token_id": token_id,
-        "window": {
-            "start": datetime.fromtimestamp(start, UTC).isoformat(),
-            "end": datetime.fromtimestamp(end, UTC).isoformat(),
-            "start_inclusive": True, "end_exclusive": True,
-        },
-        "requested_bucket_seconds": args.bucket_seconds,
-        **metadata,
-        "data": points,
-    }
-    encoded = json.dumps(result, indent=2, allow_nan=False) + "\n"
+    history = fetch_price_history(
+        args.event, market=args.market, outcome=args.outcome, token_id=args.token_id,
+        start=args.start, end=args.end, days=args.days,
+        bucket_seconds=args.bucket_seconds, client=client,
+    )
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        with args.output.open("x", encoding="utf-8") as destination:
-            destination.write(encoded)
-        print(f"Saved {len(points)} points to {args.output}", file=sys.stderr)
+        history.save(args.output)
+        print(f"Saved {len(history.data)} points to {args.output}", file=sys.stderr)
     else:
-        print(encoded, end="")
-    if not points:
+        print(json.dumps(history.to_dict(), indent=2, allow_nan=False))
+    if not history.data:
         print("No prices returned. Check the market's lifetime and requested resolution; older fine-grained data may be unavailable.", file=sys.stderr)
 
 
