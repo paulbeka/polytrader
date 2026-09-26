@@ -1,7 +1,8 @@
 # Sandbox
 
 Use this folder for exploratory `.ipynb` notebooks. Move code worth reusing into
-`src/polytrader/data/` or `src/polytrader/bot/` and import it from your notebooks.
+`src/polytrader/data/`, `src/polytrader/orderbook/`, or `src/polytrader/bot/`
+and import it from your notebooks.
 
 From the repository root, install the optional notebook dependencies:
 
@@ -20,3 +21,7 @@ shows which saved file it selected. Edit `history_path` to choose a different fi
 Loading and plotting are offline. The final cell contains commented examples of
 fetching fresh data; only uncomment them when you want an API request. Save data
 under the root `data/` directory. Clear notebook outputs before committing them.
+
+`02_orderbooks.ipynb` demonstrates full-depth event snapshots and a bounded live
+stream. Set an event slug and enable its network flags to fetch data. For live
+streaming, install `python -m pip install -e ".[live]"` from the repository root.

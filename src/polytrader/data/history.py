@@ -75,7 +75,7 @@ def fetch_history(
         raise ValueError("The token ID must contain only digits.")
     if start < 0 or start >= end:
         raise ValueError("History requires 0 <= start < end.")
-    if bucket_seconds is not None and not 60 <= bucket_seconds <= 86400:
+    if bucket_seconds is not None and not 10 <= bucket_seconds <= 86400:
         raise ValueError("--bucket-seconds must be between 60 and 86400.")
     points = {}
     window_start = start

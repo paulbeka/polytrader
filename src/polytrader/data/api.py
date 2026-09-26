@@ -35,7 +35,7 @@ def fetch_price_history(
     if token_id and (market is not None or outcome is not None):
         raise ValueError("market and outcome apply only when an event is provided.")
     start_ts, end_ts = resolve_window(start=start, end=end, days=days)
-    if bucket_seconds is not None and not 60 <= bucket_seconds <= 86400:
+    if bucket_seconds is not None and not 10 <= bucket_seconds <= 86400:
         raise ValueError("bucket_seconds must be between 60 and 86400.")
     client = client if client is not None else PolymarketClient()
     metadata = {}

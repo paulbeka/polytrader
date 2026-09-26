@@ -3,8 +3,9 @@
 Foundations for Polymarket research and an eventual automation bot. The data layer
 can be imported from Python scripts, notebooks, or future bot code; the CLI is
 another way to call it. Currently implements public event metadata and historical
-outcome prices. No account, API key, or paid service is needed.
-Python 3.11+; the core package has no runtime dependencies.
+outcome prices, plus current and live outcome order books. No account, API key,
+or paid service is needed. Python 3.11+; the core package has no runtime dependencies.
+Live order books use the optional `live` extra.
 
 ## Setup (PowerShell)
 
@@ -85,6 +86,30 @@ optional. See [sandbox/README.md](sandbox/README.md) for setup details.
 only a package placeholder and guidance; reusable bot code can import the data
 layer directly, just like the notebook.
 
+## Current and live order books
+
+The standalone `polytrader.orderbook` package maintains a separate bid/ask book
+for every selected outcome token across an event's markets, including quantity
+at each price. Import it from notebooks, scripts, or future bot code.
+
+```python
+from polytrader.orderbook import fetch_orderbooks
+
+books = fetch_orderbooks("<event-slug>")
+rows = books.summary()  # Best bid, ask, sizes, spread, and status per outcome.
+```
+
+```powershell
+polytrader orderbook "<event-slug>"
+python -m pip install -e ".[live]"
+polytrader orderbook "<event-slug>" --watch
+```
+
+Use `--market` and `--outcome` to filter, or repeat `--token-id` for direct token
+access. See [the orderbook guide](src/polytrader/orderbook/README.md) for streaming
+Python examples, date metadata, and bot integration, and
+[the notebook](sandbox/02_orderbooks.ipynb) for a bounded live example.
+
 ## Find markets and outcome tokens
 
 An event can contain several markets. List them before choosing one:
@@ -164,6 +189,7 @@ python -m polytrader --help
 ```text
 src/polytrader/
     bot/                # Future automation code (placeholder)
+    orderbook/          # Full-depth snapshots and live event-wide books
     cli.py              # CLI wrapper around the Python data API
     data/
         api.py          # fetch_price_history() orchestration

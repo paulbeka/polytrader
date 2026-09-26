@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 sandbox = ["pandas>=2.2", "matplotlib>=3.8", "ipykernel>=6.29"]
+live = ["websockets>=14,<18"]
 
 [project.scripts]
 polytrader = "polytrader.cli:main"
