@@ -103,12 +103,32 @@ rows = books.summary()  # Best bid, ask, sizes, spread, and status per outcome.
 polytrader orderbook "<event-slug>"
 python -m pip install -e ".[live]"
 polytrader orderbook "<event-slug>" --watch
+polytrader orderbook "<event-slug>" --serve
 ```
 
 Use `--market` and `--outcome` to filter, or repeat `--token-id` for direct token
 access. See [the orderbook guide](src/polytrader/orderbook/README.md) for streaming
 Python examples, date metadata, and bot integration, and
 [the notebook](sandbox/02_orderbooks.ipynb) for a bounded live example.
+
+`--serve` provides a small live view at http://127.0.0.1:8765 with bid/ask prices,
+quantities, spreads, and depth bars. Omit the event to choose it in the page.
+Other programs can share its feed through `/api/books` (JSON snapshot) or
+`/api/stream` (SSE). The view/feed publishes current state up to four times per
+second while the underlying service processes book updates continuously.
+
+Record a compact history of best prices, quantities and spreads, then replay it
+offline:
+
+```powershell
+polytrader orderbook "<event-slug>" --record data/orderbooks/session.jsonl --duration 600
+polytrader replay data/orderbooks/session.jsonl --serve --port 8766 --speed 10
+```
+
+Recording defaults to one-second sampling, saves only changed best quotes, and
+stops after one hour or 10 MiB. It preserves status and timestamps, excludes full
+depth, and never overwrites existing files. See the orderbook guide for Python
+recording/replay APIs, other limits, and interrupted-file recovery.
 
 ## Find markets and outcome tokens
 

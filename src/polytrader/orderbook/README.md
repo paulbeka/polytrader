@@ -117,6 +117,158 @@ not automatically discovered during a session.
 
 ## CLI
 
+### Compact recording and offline replay
+
+```powershell
+# Default: one-second sampling, one hour maximum, 10 MiB file cap.
+# Creates a new UTC-named file under data/orderbooks/.
+polytrader orderbook "<event-slug>" --record
+
+# Keep a small, ten-minute sample of selected outcomes.
+polytrader orderbook "<event-slug>" --outcome Yes --record data/orderbooks/session.jsonl --interval 2 --duration 600 --max-mb 5
+
+# Replay locally at 10x speed, or inspect immediately with no delays.
+polytrader replay data/orderbooks/session.jsonl --speed 10
+polytrader replay data/orderbooks/session.jsonl --instant
+
+# Replay in the existing viewer, on a separate port from a running live view.
+polytrader replay data/orderbooks/session.jsonl --serve --port 8766 --speed 10
+```
+
+Recording saves **best bid/ask prices, quantities, status, and source update time**.
+Spreads are reproduced exactly from the decimal prices. It omits full depth and
+trades. Event/market metadata appears once in a versioned JSON Lines header; rows
+refer to tokens by a compact index. At each interval, only tokens whose best
+prices, sizes, or status changed are written. Changes deeper in the book do not
+add rows. A quiet session therefore needs very little storage.
+
+Defaults are `interval=1` second, `duration=3600` seconds and a hard 10 MiB file
+limit, including header and end marker. Recording stops at the first limit;
+files are never overwritten. Duration starts after discovery and includes feed
+initialization. Ctrl+C flushes an interrupted end marker; complete rows also
+remain readable after abrupt termination. A missing end marker or partial final
+line is reported as `incomplete` on replay. Other corrupt complete rows fail
+clearly. An invalid/disconnected feed is retained as initializing/stale/unavailable
+state instead of silently treating old prices as live.
+
+Each sample records elapsed monotonic time, and the header records its UTC start.
+Replay restores quotes for every token, carrying unchanged quotes forward to the
+next recorded change. The end marker preserves the quiet tail of the session and
+the stop reason (`duration`, `size_limit`, `interrupted`, `source_complete`, or
+`error`). Source `updated_at` is from the last saved quote observation and is not
+advanced by omitted depth-only updates. Brief movements and status changes between
+sample times are not captured: this format cannot reconstruct tick-by-tick trading
+or full-depth books.
+
+Python API:
+
+```python
+import asyncio
+from polytrader.orderbook import record_orderbooks, load_recording, replay_orderbooks
+
+async def record():
+    return await record_orderbooks(
+        "<event-slug>", output="data/orderbooks/session.jsonl",
+        interval=1, duration=600, max_bytes=5 * 1024 * 1024,
+    )
+
+result = asyncio.run(record())  # In a notebook: result = await record()
+print(result.path, result.bytes_written, result.reason)
+
+recording = load_recording(result.path)
+print(recording.metadata["event"])
+for frame in recording.frames():  # Immediate, streaming iteration; no network.
+    for token, quote in frame.quotes.items():
+        print(frame.recorded_at, token, quote.best_bid, quote.best_ask, quote.spread)
+
+async def playback():
+    async for frame in replay_orderbooks(recording, speed=10):
+        print(frame.to_dict())
+```
+
+If a bot already maintains an `OrderBookService`, use
+`await record_quotes(service.collection, output, interval=1, duration=600)` inside
+its service context to reuse the connection. This samples the collection without
+taking notifications away from its consumer. The lower-level `QuoteRecorder`
+context manager exposes `sample(collection, elapsed_seconds)` and `finish()` for
+custom scheduling; its caller is responsible for scheduling and duration limits.
+`sample()` returns `False` when the next frame will not fit the byte cap.
+
+The replay viewer is labelled **Recorded bid / ask**, displays recorded time,
+and offers restart and speed controls. It shows only the recorded best levels.
+It makes no calls to Polymarket and exposes replay state through the same local
+`/api/books` and `/api/stream` endpoints. Replay server event switching is disabled;
+`POST /api/replay` with `{"speed":10}` restarts the loaded recording.
+
+Recording, live viewing, and CLI watching are separate command modes. To run a
+live viewer while recording from the CLI, start a second command with the same
+event; it will open its own stream. Use `record_quotes` for sharing a Python service.
+
+### Live visualisation and a shared feed
+
+```powershell
+polytrader orderbook --serve
+# Or start with a selected event:
+polytrader orderbook "<event-slug>" --serve
+```
+
+Open **http://127.0.0.1:8765**. Paste an event URL or slug to switch events.
+The page shows live bids, asks, share quantities, spreads, connection status,
+and time since each book changed. Select a row to see its top 10 bid/ask levels.
+Prices are displayed in cents; the Python API and JSON retain prices from 0 to 1.
+Use `--port 8766` to run another independent event feed. Stop the server with Ctrl+C.
+
+Book changes include resting orders being added or cancelled, and trades that
+change depth. A trade is not required for bid/ask updates. A change away from the
+best prices may update depth without changing the displayed best bid or ask.
+
+The server shares one maintained event feed with any number of local clients:
+
+| Endpoint | Result |
+|---|---|
+| `GET /api/books` | Latest event state and all selected books as JSON |
+| `GET /api/stream` | Server-sent events (SSE), each `data:` frame containing that same JSON shape |
+| `POST /api/event` | Switch the shared event using `{"event":"<event-slug>"}` and `Content-Type: application/json` |
+
+Every browser or program receives its own copy of the latest state; clients do
+not take updates away from each other. An event switch affects all attached
+clients. The server binds to this computer's loopback interface only. It does
+not enable cross-origin browser access; command-line programs can connect directly.
+
+```powershell
+curl.exe -N http://127.0.0.1:8765/api/stream
+```
+
+Python, using only the standard library:
+
+```python
+import json
+from urllib.request import urlopen
+
+with urlopen("http://127.0.0.1:8765/api/stream", timeout=15) as response:
+    for line in response:
+        if not line.startswith(b"data: "):
+            continue
+        state = json.loads(line[6:])
+        for book in state.get("books", []):  # Heartbeats have an empty payload.
+            if book["status"] == "live":
+                print(book["market"]["outcome"], book["best_bid"], book["best_ask"])
+```
+
+The HTTP feed publishes the current state up to four times per second while
+the underlying book service processes received updates continuously. It is for
+current quotes and visualisation, not lossless recording or latency-sensitive
+execution. Check book `status`, quote `updated_at`, and envelope `published_at`.
+On client disconnection, treat cached quotes as stale and reconnect. SSE clients
+receive the newest full state after reconnect; missed updates are not replayed.
+
+For a Python program that needs notifications without the dashboard's 250 ms
+sampling interval, use `watch_orderbooks()` or `OrderBookService` as above.
+`OrderBookService.updates()` has one consumer; fan out within your application
+or use the shared HTTP server for multiple separate programs.
+
+### JSON commands
+
 ```powershell
 polytrader orderbook "<event-slug>"
 polytrader orderbook "<event-slug>" --market "<nov-market>" --market "<dec-market>" --outcome Yes
@@ -136,6 +288,8 @@ eligible books exist; inspect the JSON for partial results.
 - `client.py`: REST, WebSocket framing, heartbeat, timestamp conversion.
 - `service.py`: multiple books, background updates, reconnection, lifecycle.
 - `api.py`: discovery, filters, snapshots, convenience async iterator.
+- `viewer.py` / `viewer.html`: local live visualisation and shared HTTP/SSE access.
+- `recording.py`: bounded best-quote storage, lazy reading, and timed offline replay.
 
 The bot imports this package; orderbook code does not import the bot. Other
 transports can translate messages into `OrderBook.replace()` / `apply()` calls.

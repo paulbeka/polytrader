@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polytrader · Live order books</title>
+<style>
+:root { color-scheme: light dark; --bg: #f7f9fc; --ink: #172b42; --muted: #53677f; --line: #d8e1eb; --panel: #fff; --bid: #137f70; --ask: #ae5918; --wash: #eaf1f8; --bad: #ad3434; }
+@media(prefers-color-scheme:dark) { :root { --bg:#101923; --ink:#e4edf6; --muted:#a0b3c7; --line:#304354; --panel:#162431; --bid:#60d5b6; --ask:#f3b46c; --wash:#24384c; --bad:#ff9d9d; } }
+* { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui,sans-serif; } main { max-width:1200px; margin:auto; padding:32px 24px; }
+header { display:flex; justify-content:space-between; gap:16px; align-items:baseline; flex-wrap:wrap; } h1 { font-size:26px; margin:0; letter-spacing:-.6px; font-weight:600; } h2 { font-size:18px; font-weight:600; margin:0 0 8px; } p { margin:8px 0; } .muted { color:var(--muted); } .eyebrow { font-size:12px; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:8px; }
+form { display:flex; align-items:end; gap:12px; margin:24px 0; } label { display:block; } .event-field { flex:1; } input,select,button { font:inherit; color:inherit; border:1px solid var(--line); border-radius:7px; padding:10px 12px; background:var(--panel); } input { width:100%; margin-top:6px; } button { cursor:pointer; } button.primary { color:var(--panel); background:var(--ink); border-color:var(--ink); } button:disabled { opacity:.6; cursor:wait; } :focus-visible { outline:3px solid var(--bid); outline-offset:3px; }
+.toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:18px 0; } .state { padding:5px 10px; border-radius:20px; background:var(--wash); font-size:13px; } .error { color:var(--bad); } .table-wrap { overflow-x:auto; } table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; } th { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); text-align:right; padding:12px 8px; font-weight:500; } td { border-top:1px solid var(--line); padding:12px 8px; text-align:right; white-space:nowrap; } th:first-child, td:first-child { text-align:left; } .market-button { background:none; border:0; padding:0; text-align:left; max-width:290px; white-space:normal; line-height:1.4; } .market-button small { display:block; color:var(--muted); margin-top:3px; } tr.selected { background:var(--wash); } .bid { color:var(--bid); } .ask { color:var(--ask); } .range { min-width:120px; width:160px; } .range svg { display:block; width:100%; height:20px; } .range line { stroke:var(--line); } .range rect { fill:var(--ink); } .range circle.bid-mark { fill:var(--bid); } .range circle.ask-mark { fill:var(--ask); }
+.depth { margin-top:30px; padding-top:24px; border-top:1px solid var(--line); } .depth-columns { display:grid; grid-template-columns:1fr 1fr; gap:28px; margin-top:18px; } .depth th:first-child { text-align:right; } .depth td { position:relative; } .depth td:first-child { text-align:right; } .depth .bar { position:absolute; right:0; top:4px; bottom:4px; background:var(--bid); opacity:.12; pointer-events:none; } .depth .ask-table .bar { background:var(--ask); } .depth td span { position:relative; } .empty { padding:40px 0; color:var(--muted); } footer { margin-top:28px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; } [hidden] { display:none!important; } #notice { margin:12px 0; } #excluded { font-size:13px; } .age { min-width:65px; } .dim { opacity:.65; }
+@media(max-width:640px) { main { padding:22px 14px; } form { flex-wrap:wrap; } .event-field { flex-basis:100%; } .depth-columns { grid-template-columns:1fr; gap:20px; } .range { display:none; } h1 { font-size:23px; } button, select { min-height:44px; } }
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow muted">Polytrader / Market data</div><h1 id="page-title">Live order books</h1></div><span id="connection" class="state" role="status">Connecting to local feed…</span></header>
+<form id="event-form"><label class="event-field">Polymarket event URL or slug<input id="event-input" placeholder="https://polymarket.com/event/…" required autocomplete="off"></label><button class="primary" id="connect" type="submit">Watch event</button></form>
+<form id="replay-form" hidden><label>Playback speed <select id="replay-speed"><option value="0.25">0.25×</option><option value="1" selected>1×</option><option value="5">5×</option><option value="10">10×</option><option value="60">60×</option></select></label><button type="submit" class="primary">Restart playback</button><span id="replay-time" class="muted" role="status"></span></form>
+<div id="notice" role="alert" hidden></div>
+<section aria-labelledby="event-title">
+<div class="toolbar"><div><h2 id="event-title">Choose an event to start</h2><div id="summary" class="muted">One row per outcome. Bid and ask quantities are shares.</div></div><label id="filter-label" hidden>Show outcome <select id="outcome-filter"><option value="">All outcomes</option></select></label></div>
+<div class="table-wrap"><table id="quotes" hidden><thead><tr><th scope="col">Market / outcome</th><th scope="col">Bid ¢</th><th scope="col">Bid shares</th><th scope="col">Ask ¢</th><th scope="col">Ask shares</th><th scope="col">Spread ¢</th><th class="range" scope="col">Range · 0–100¢</th><th scope="col">Status</th><th scope="col">Updated</th></tr></thead><tbody id="rows"></tbody></table></div>
+<p id="empty" class="empty">Paste an event above to see bids, asks, spreads and available quantities across its markets.</p><p id="excluded" class="muted"></p>
+</section>
+<section class="depth" id="depth" hidden aria-labelledby="depth-title"><h2 id="depth-title">Order depth</h2><p id="depth-info" class="muted"></p><div class="depth-columns"><div><h2 class="bid">Bids · buyers</h2><table><thead><tr><th>Price ¢</th><th>Shares</th></tr></thead><tbody id="bid-depth"></tbody></table></div><div><h2 class="ask">Asks · sellers</h2><table class="ask-table"><thead><tr><th>Price ¢</th><th>Shares</th></tr></thead><tbody id="ask-depth"></tbody></table></div></div></section>
+<footer id="footnote">Updates include order placements and cancellations, not just trades. View refreshes up to 4 times/second. “Updated” is time since the last book change; a quiet book can still be live. Select a market to inspect its top 10 price levels.</footer>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let current = null, selected = null, revision = null, lastMessage = 0, transportLive = false, replaySpeed = null;
+const rowNodes = new Map();
+const amount = value => value == null ? '—' : Number(value).toLocaleString(undefined, {maximumFractionDigits:2});
+const cents = value => value == null ? '—' : (Number(value)*100).toLocaleString(undefined, {maximumFractionDigits:3});
+function text(tag, value, className='') { const node = document.createElement(tag); node.textContent=value; node.className=className; return node; }
+function freshness() {
+  const replay = current?.mode==='replay';
+  const local = transportLive && Date.now()-lastMessage < 5000;
+  const healthy = local && (current?.state !== 'running' || Date.now()-new Date(current.published_at).getTime()<5000);
+  $('connection').textContent = healthy ? (replay?'Offline recording · '+(current.state==='replay_finished'?'finished':'playback'):'Connected to local feed') : 'Feed interrupted · displayed quotes may be stale';
+  $('connection').classList.toggle('error', !healthy);
+  for (const {row, book, status} of rowNodes.values()) {
+    const date = book.updated_at ? new Date(book.updated_at).getTime() : null;
+    const now = replay ? new Date(current.recorded_at).getTime() : Date.now();
+    const seconds = date === null ? null : Math.max(0, Math.floor((now-date)/1000));
+    row.querySelector('.age').textContent = seconds === null ? '—' : seconds < 60 ? `${seconds}s ago` : `${Math.floor(seconds/60)}m ago`;
+    status.textContent = healthy ? (replay?'recorded '+book.status:book.status) : 'stale';
+    row.classList.toggle('dim', !healthy || book.status !== 'live');
+  }
+  if(current?.books.length){const count=healthy?current.books.filter(b=>b.status==='live').length:0;$('summary').textContent=replay?`${current.books.length} recorded outcomes · best quotes only · prices in cents`:`${count} of ${current.books.length} books live · prices in cents · quantities in shares`;}
+  if(!healthy && selected)$('depth-info').textContent='Stale · last received depth · quantities in shares';
+}
+function rangeCell() {
+  const td = document.createElement('td'); td.className='range';
+  td.innerHTML='<svg viewBox="0 0 160 20" role="img"><line x1="4" y1="10" x2="156" y2="10"/><rect y="8" height="4"/><circle class="bid-mark" r="3" cy="10"/><circle class="ask-mark" r="3" cy="10"/></svg>';
+  return td;
+}
+function updateRow(book) {
+  let entry = rowNodes.get(book.token_id);
+  if (!entry) {
+    const row=document.createElement('tr'), first=document.createElement('td'), button=document.createElement('button');
+    button.className='market-button'; button.type='button';
+    button.append(text('span',book.market.label || book.market.question || book.market.market_slug || book.token_id),text('small',book.market.outcome || 'Outcome token'));
+    button.addEventListener('click',()=>{selected=book.token_id;renderDepth();highlight();});
+    first.append(button); row.append(first);
+    const cells=[]; for(let i=0;i<5;i++){const cell=text('td','');row.append(cell);cells.push(cell);}
+    cells[0].className='bid'; cells[2].className='ask'; row.append(rangeCell());
+    const status=text('td','');row.append(status,text('td','','age'));
+    entry={row,book,cells,status,button};rowNodes.set(book.token_id,entry);$('rows').append(row);
+  }
+  entry.book=book;
+  const values=[cents(book.best_bid?.price),amount(book.best_bid?.size),cents(book.best_ask?.price),amount(book.best_ask?.size),cents(book.spread)];
+  values.forEach((value,i)=>entry.cells[i].textContent=value);
+  entry.status.textContent=book.status; entry.status.title=book.reason || '';
+  const svg=entry.row.querySelector('svg'), bid=book.best_bid?.price, ask=book.best_ask?.price;
+  const x=value=>4+Number(value)*152;
+  svg.setAttribute('aria-label',`Bid ${cents(bid)} cents, ask ${cents(ask)} cents`);
+  for(const [cls,value] of [['.bid-mark',bid],['.ask-mark',ask]]){const mark=svg.querySelector(cls);mark.style.display=value==null?'none':'';if(value!=null)mark.setAttribute('cx',x(value));}
+  const band=svg.querySelector('rect');band.style.display=bid==null||ask==null?'none':'';
+  if(bid!=null&&ask!=null){band.setAttribute('x',x(bid));band.setAttribute('width',Math.max(1,x(ask)-x(bid)));}
+  entry.row.hidden=!!$('outcome-filter').value && book.market.outcome!==$('outcome-filter').value;
+}
+function highlight(){for(const [id,e] of rowNodes){e.row.classList.toggle('selected',id===selected);e.button.setAttribute('aria-pressed',String(id===selected));}}
+function renderDepth(){
+  const book=current?.books.find(b=>b.token_id===selected);$('depth').hidden=!book;if(!book)return;
+  $('depth-title').textContent=`${book.market.label || book.market.question || 'Outcome'} · ${book.market.outcome || book.token_id}`;
+  $('depth-info').textContent=current.mode==='replay'?`Recorded ${book.status} · best level only · quantities in shares`:`${book.status}${book.reason?' · '+book.reason:''} · Top 10 levels · quantities in shares`;
+  const max=Math.max(1,...book.bids.slice(0,10).map(l=>Number(l.size)),...book.asks.slice(0,10).map(l=>Number(l.size)));
+  for(const [id,levels] of [['bid-depth',book.bids],['ask-depth',book.asks]]){
+    const body=$(id);body.replaceChildren();
+    if(!levels.length){const row=document.createElement('tr'),cell=text('td','No resting orders');cell.colSpan=2;row.append(cell);body.append(row);}
+    for(const level of levels.slice(0,10)){const row=document.createElement('tr');row.append(text('td',cents(level.price)));const size=document.createElement('td'),bar=document.createElement('div');bar.className='bar';bar.style.width=`${Number(level.size)/max*100}%`;size.append(bar,text('span',amount(level.size)));row.append(size);body.append(row);}
+  }
+}
+function render(payload){
+  current=payload;const key=JSON.stringify([payload.event,payload.books.map(b=>b.token_id)]);
+  const replay=payload.mode==='replay';$('event-form').hidden=replay;$('replay-form').hidden=!replay;
+  if(replay && payload.speed!==replaySpeed){replaySpeed=payload.speed;const speed=$('replay-speed');if(![...speed.options].some(option=>option.value===String(replaySpeed)))speed.add(new Option(`${replaySpeed}×`,String(replaySpeed)));speed.value=String(replaySpeed);}
+  $('page-title').textContent=replay?'Recorded bid / ask':'Live order books';
+  if(replay){$('replay-time').textContent=`${payload.recorded_at} · ${payload.state==='replay_finished'?'Finished ('+payload.end_reason+')':(payload.elapsed_seconds||0).toFixed(1)+'s'}`;$('footnote').textContent='Historical, sampled best quotes — not live prices or full depth. Unchanged quotes are held until the next recorded change. Brief changes between samples may be absent. Updated age is relative to recorded time. Use Restart playback to play again at the selected speed.';}
+  if(key!==revision){revision=key;rowNodes.clear();$('rows').replaceChildren();selected=null;const filter=$('outcome-filter');filter.replaceChildren(new Option('All outcomes',''));for(const label of [...new Set(payload.books.map(b=>b.market.outcome).filter(Boolean))])filter.add(new Option(label,label));}
+  const books=payload.books;const live=books.filter(b=>b.status==='live').length;
+  $('event-title').textContent=payload.event.title || payload.event.slug || 'Choose an event to start';
+  $('summary').textContent=books.length?`${live} of ${books.length} books live · prices in cents · quantities in shares`:payload.state==='connecting'?'Discovering markets and connecting…':'One row per outcome. Bid and ask quantities are shares.';
+  $('notice').hidden=!payload.error;$('notice').textContent=payload.error || '';$('notice').className='error';
+  $('quotes').hidden=!books.length;$('filter-label').hidden=!books.length;$('empty').hidden=!!books.length;
+  $('excluded').textContent=payload.excluded.map(e=>`${e.market_slug}: ${e.reason}`).join(' · ');
+  for(const book of books)updateRow(book);
+  if(!selected&&books.length)selected=books[0].token_id;
+  highlight();renderDepth();freshness();
+}
+$('outcome-filter').addEventListener('change',()=>{if(!current)return;for(const book of current.books)updateRow(book);const visible=current.books.filter(b=>!$('outcome-filter').value||b.market.outcome===$('outcome-filter').value);if(!visible.some(b=>b.token_id===selected))selected=visible[0]?.token_id;highlight();renderDepth();});
+$('event-form').addEventListener('submit',async event=>{
+  event.preventDefault();$('connect').disabled=true;
+  try {const response=await fetch('/api/event',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event:$('event-input').value.trim()})});const result=await response.json();if(!response.ok)throw Error(result.error);}
+  catch(error){$('notice').hidden=false;$('notice').className='error';$('notice').textContent=error.message;}
+  finally{$('connect').disabled=false;}
+});
+const source=new EventSource('/api/stream');
+$('replay-form').addEventListener('submit',async event=>{event.preventDefault();try{const response=await fetch('/api/replay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({speed:Number($('replay-speed').value)})});const result=await response.json();if(!response.ok)throw Error(result.error);}catch(error){$('notice').hidden=false;$('notice').textContent=error.message;}});
+source.onmessage=event=>{transportLive=true;lastMessage=Date.now();render(JSON.parse(event.data));};
+source.onerror=()=>{transportLive=false;freshness();};
+source.addEventListener('heartbeat',()=>{transportLive=true;lastMessage=Date.now();freshness();});
+setInterval(freshness,1000);
+window.addEventListener('pagehide',()=>source.close());
+</script></body></html>
