@@ -20,7 +20,7 @@ class OrderBookService:
     """
 
     def __init__(self, collection: OrderBooks, *, client=None, max_retries=5,
-                 retry_delay=1.0, snapshot_timeout=30.0):
+                 retry_delay=1.0, snapshot_timeout=30.0, allow_missing_snapshots=False):
         if not collection.books:
             raise ValueError("At least one outcome token is required")
         if max_retries is not None and (not isinstance(max_retries, int) or max_retries < 0):
@@ -34,12 +34,25 @@ class OrderBookService:
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.snapshot_timeout = snapshot_timeout
+        self.allow_missing_snapshots = allow_missing_snapshots
         self._engines = {token: OrderBook(token) for token in collection.books}
         self._pending = OrderedDict()
         self._wake = asyncio.Event()
         self._task = None
         self._error = None
         self._iterating = False
+        self.continuity = 0
+        self._connected = False
+
+    @property
+    def healthy(self):
+        """Transport receiving messages/heartbeats; check each book's status as well.
+
+        Quote timestamps are deliberately not a freshness test. ``continuity``
+        increases whenever the feed is invalidated, even if notifications coalesce.
+        """
+        return (self._task is not None and not self._task.done()
+                and self._error is None and self._connected)
 
     def _publish(self, token):
         snapshot = self._engines[token].snapshot
@@ -48,6 +61,8 @@ class OrderBookService:
         self._wake.set()
 
     def _invalidate(self, reason):
+        self.continuity += 1
+        self._connected = False
         for token, book in self._engines.items():
             if book.snapshot.status != "unavailable":
                 book.invalidate(reason)
@@ -142,13 +157,23 @@ class OrderBookService:
                             missing = set(tokens) - ready
                             remaining = self.snapshot_timeout - (loop.time() - started)
                             if missing and remaining <= 0:
-                                raise DataError(f"Timed out waiting for snapshots: {sorted(missing)}")
+                                if not self.allow_missing_snapshots:
+                                    raise DataError(f"Timed out waiting for snapshots: {sorted(missing)}")
+                                # Some configured markets may no longer have a book. Keep
+                                # unrelated markets live; a later full snapshot recovers these.
+                                for token in missing:
+                                    self._engines[token].invalidate("Initial snapshot unavailable")
+                                    self._publish(token)
+                                ready.update(missing)
+                                missing = set()
                             try:
-                                message = await asyncio.wait_for(anext(stream), remaining if missing else None)
+                                message = await asyncio.wait_for(
+                                    anext(stream), remaining if missing and not self.allow_missing_snapshots else None)
                             except TimeoutError as exc:
                                 raise DataError(f"Timed out waiting for snapshots: {sorted(missing)}") from exc
                             except StopAsyncIteration as exc:
                                 raise DataError("Market stream closed") from exc
+                            self._connected = True
                             if message is not None:
                                 if not isinstance(message, dict):
                                     raise DataError("Expected a market stream object")

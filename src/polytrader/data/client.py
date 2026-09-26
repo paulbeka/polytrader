@@ -14,6 +14,8 @@ class DataError(Exception):
 
 
 class PolymarketClient:
+    json_float = float
+
     def __init__(self, timeout: float = 20):
         self.timeout = timeout
 
@@ -25,7 +27,7 @@ class PolymarketClient:
         )
         try:
             with urlopen(request, timeout=self.timeout) as response:
-                payload = json.load(response)
+                payload = json.load(response, parse_float=self.json_float)
         except HTTPError as exc:
             detail = exc.read(1000).decode("utf-8", errors="replace")
             raise DataError(f"HTTP {exc.code} from {url}: {detail}") from exc

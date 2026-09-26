@@ -201,6 +201,11 @@ and [price history, pagination, and retention](https://docs.polymarket.com/api-r
 
 ## Development
 
+The [time-arbitrage scanner](src/polytrader/bot/time_arbitrage/README.md) lives in
+`polytrader.bot`. Configure ordered, reviewed market chains to scan earlier-NO /
+later-YES asks, including fee-aware sizing, full depth, and persistent opportunity
+logs. It is read-only and does not place orders.
+
 ```powershell
 python -m unittest discover -s tests -v
 python -m polytrader --help
@@ -208,7 +213,7 @@ python -m polytrader --help
 
 ```text
 src/polytrader/
-    bot/                # Future automation code (placeholder)
+    bot/                # Read-only time-arbitrage scanner and strategy code
     orderbook/          # Full-depth snapshots and live event-wide books
     cli.py              # CLI wrapper around the Python data API
     data/

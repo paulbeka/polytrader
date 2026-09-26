@@ -8,6 +8,7 @@ See [the orderbook guide](../orderbook/README.md) for bot integration and freshn
 checks. Market-data connections and book state belong there; strategies and order
 execution belong in this package.
 
-This package is currently a placeholder. Scheduling, strategies, portfolio state,
-and order execution can be added when needed. Importing it starts no processes
-and makes no network requests.
+The [time-arbitrage scanner](time_arbitrage/README.md) scans user-reviewed ordered
+market chains, sizes earlier-NO / later-YES quoted opportunities, and saves
+fee-aware lifecycle records. It is read-only and places no orders. Importing the
+package starts no processes and makes no network requests.

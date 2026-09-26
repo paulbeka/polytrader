@@ -111,6 +111,19 @@ five retries without a healthy 60-second session, iteration raises `DataError`.
 Set `max_retries=None` for unlimited retries. `OrderBookService` also accepts
 `retry_delay` and `snapshot_timeout` in seconds.
 
+`service.healthy` exposes transport health; also check each captured snapshot's
+`status == "live"`. `service.continuity` increments on feed invalidation, including
+failures hidden by coalesced stale/live notifications. Consumers measuring observed
+opportunity lifetimes should close their intervals when that counter changes.
+Quote age alone does not determine connection health.
+
+For mixed selections where some tokens may no longer have books,
+`OrderBookService(..., allow_missing_snapshots=True)` keeps other books running.
+Missing initial snapshots become stale once the deadline is checked on incoming
+messages/heartbeats; a later full snapshot recovers them. The default remains a
+timeout/reconnect when initial snapshots are missing. The connection's PONG timeout
+still applies in either mode.
+
 Selection is fixed per session. To add a newly listed date or switch events,
 resolve the selection again and start a new service. Newly listed markets are
 not automatically discovered during a session.

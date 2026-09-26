@@ -22,3 +22,5 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "polytrader.orderbook" = ["viewer.html"]
+"polytrader.bot" = ["config/*.example.toml"]
+"polytrader.bot.time_arbitrage" = ["README.md"]
