@@ -199,6 +199,29 @@ For older history, try `--bucket-seconds 10800` (3 hours) or `43200` (12 hours).
 API details: [event lookup](https://docs.polymarket.com/api-reference/events/get-event-by-slug)
 and [price history, pagination, and retention](https://docs.polymarket.com/api-reference/markets/get-a-tokens-price-history).
 
+## Research dataset: resolved markets, trades and volume
+
+Builds a local dataset under `data/research/` for backtests (needs
+`pip install -r requirements-sandbox.txt`). Each step is resumable; rerunning
+`trades` skips markets already saved and retries earlier failures.
+
+```powershell
+python -m polytrader.research markets --since 2025-01-01 --min-volume 100000
+python -m polytrader.research trades --sample 5000 --no-updown --workers 4
+python -m polytrader.research bars --freq 5min   # Any pandas frequency: 1min, 1h, 1D...
+```
+
+- `markets.parquet`: one row per resolved market with its winning outcome,
+  event tags (use these as categories), dates and volume. Polymarket's `volume`
+  is in **shares**; dollar volume is shares x price.
+- `trades/<condition_id>.parquet`: every taker trade (second timestamps, side,
+  size, price, wallet). Summed sizes match the official market volume.
+- `volume_<freq>.parquet`: per-market bars with trade count, shares, USD,
+  YES-equivalent VWAP and net taker flow towards YES. Up/Down markets treat Up as YES.
+
+Load in a notebook with `pandas.read_parquet` or
+`polytrader.research.pull.load_trades("data/research", condition_ids)`.
+
 ## Development
 
 The [time-arbitrage scanner](src/polytrader/bot/time_arbitrage/README.md) lives in

@@ -20,6 +20,19 @@ class PolymarketClient:
         self.timeout = timeout
 
     def get_json(self, url: str, **params) -> dict:
+        payload = self._load(url, params)
+        if not isinstance(payload, dict):
+            raise DataError(f"Expected a JSON object from {url}")
+        return payload
+
+    def get_list(self, url: str, **params) -> list:
+        """For endpoints (e.g. trades) whose response is a JSON array."""
+        payload = self._load(url, params)
+        if not isinstance(payload, list):
+            raise DataError(f"Expected a JSON array from {url}")
+        return payload
+
+    def _load(self, url: str, params: dict):
         query = urlencode({key: value for key, value in params.items() if value is not None})
         request = Request(
             f"{url}?{query}" if query else url,
@@ -35,8 +48,6 @@ class PolymarketClient:
             raise DataError(f"Request to {url} failed: {exc}") from exc
         except (ValueError, UnicodeError) as exc:
             raise DataError(f"Invalid JSON from {url}") from exc
-        if not isinstance(payload, dict):
-            raise DataError(f"Expected a JSON object from {url}")
         return payload
 
     def get_event(self, slug: str) -> dict:
