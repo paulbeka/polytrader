@@ -199,28 +199,97 @@ For older history, try `--bucket-seconds 10800` (3 hours) or `43200` (12 hours).
 API details: [event lookup](https://docs.polymarket.com/api-reference/events/get-event-by-slug)
 and [price history, pagination, and retention](https://docs.polymarket.com/api-reference/markets/get-a-tokens-price-history).
 
-## Research dataset: resolved markets, trades and volume
+## One-year research dataset
 
-Builds a local dataset under `data/research/` for backtests (needs
-`pip install -r requirements-sandbox.txt`). Each step is resumable; rerunning
-`trades` skips markets already saved and retries earlier failures.
+The research pipeline builds a versioned local dataset under `data/research/v1/`
+for calibration, longshot-bias, deadline, drift, volume, convergence and wallet
+studies. Install `requirements-sandbox.txt` first; Parquet output uses pyarrow and
+zstd compression. All timestamps are UTC.
+
+Run the steps in order:
 
 ```powershell
-python -m polytrader.research markets --since 2025-01-01 --min-volume 100000
-python -m polytrader.research trades --sample 5000 --no-updown --workers 4
-python -m polytrader.research bars --freq 5min   # Any pandas frequency: 1min, 1h, 1D...
+python -m polytrader.research universe
+python -m polytrader.research trades --workers 4 --rps 4
+python -m polytrader.research prices --workers 4 --rps 4
+python -m polytrader.research compact
+python -m polytrader.research validate
 ```
 
-- `markets.parquet`: one row per resolved market with its winning outcome,
-  event tags (use these as categories), dates and volume. Polymarket's `volume`
-  is in **shares**; dollar volume is shares x price.
-- `trades/<condition_id>.parquet`: every taker trade (second timestamps, side,
-  size, price, wallet). Summed sizes match the official market volume.
-- `volume_<freq>.parquet`: per-market bars with trade count, shares, USD,
-  YES-equivalent VWAP and net taker flow towards YES. Up/Down markets treat Up as YES.
+`universe` uses Gamma's keyset endpoint and always enumerates the complete eligible
+universe: markets closed in the preceding 365 days with more than zero traded
+shares. Recurring Up/Down crypto markets remain in `universe.parquet` with
+`is_updown=true`, but are not selected. At most 50,000 other markets are selected
+with fixed-seed stratified random sampling by close month, volume decile and first
+event tag. `weight` is the stratum population divided by its sampled count.
 
-Load in a notebook with `pandas.read_parquet` or
-`polytrader.research.pull.load_trades("data/research", condition_ids)`.
+Use `--limit 200` on each command for a small end-to-end smoke run. A universe run
+still enumerates all metadata so the sample is not biased. Trades and prices are
+written atomically as one file per market under `.staging/`; completed files are
+skipped on rerun and failed markets (recorded in `failures.jsonl`) are retried.
+Selection order is deterministically shuffled so a partial download is not just
+the highest-volume or newest slice. Universe requests retry transient failures up
+to 20 times by default; use `--retry-attempts` to change that and rerun the same
+command after any terminal failure to resume from its saved keyset cursor.
+
+### Public tables
+
+- `universe.parquet`: every eligible market. It contains identifiers, question,
+  event fields, tags, outcomes and token IDs, final outcome prices, winner and
+  `cancelled`, dates/rules, neg-risk and fee fields, tick/minimum sizes, share
+  volume, `is_updown`, `close_month`, `volume_decile`, `stratum`, `selected`,
+  `selection_order`, and sampling `weight`. `gamma_market_*` columns and
+  `raw_market_json` retain every market field returned by Gamma.
+- `markets.parquet`: the selected rows from the universe used by the compacted
+  dataset.
+- `events.parquet`: one selected event per row, including identifiers, title,
+  description, dates, category and tags. `gamma_event_*` columns and
+  `raw_event_json` preserve the complete event metadata.
+- `market_tags.parquet`: long-form `condition_id, tag` relationships.
+- `raw/events-*.jsonl.zst`: lossless raw event responses, one JSON object per line.
+- `trades/close_month=YYYY-MM/`: taker-only fills with `condition_id`, Unix-second
+  `timestamp`, outcome `asset` and index, `side`, `size` (shares), `price`, proxy
+  `wallet`, and transaction hash `tx`.
+- `prices/close_month=YYYY-MM/`: outcome-token history with `condition_id`,
+  `token_id`, `outcome`, `timestamp`, `price`, returned `resolution_seconds`, and
+  the `requested_bucket_seconds` that succeeded.
+- `bars_1min/`, `bars_1h/`, `bars_1d/`: only intervals containing trades. Columns
+  are `condition_id`, UTC `time`, trade count, shares, USD (`size * price`),
+  YES-equivalent VWAP, net taker flow towards YES, and YES-equivalent OHLC. A NO
+  fill at price `p` is represented as YES at `1-p`; gaps are never filled.
+- `manifest.json`: parameters, endpoints, step timings, row counts, Git commit and
+  latest validation summary. `validation.json` contains the detailed report.
+
+Load a table into pandas:
+
+```python
+from polytrader.research.load import load_frame
+
+markets = load_frame("markets")
+trades = load_frame("trades", filters=[("close_month", "=", "2026-09")])
+```
+
+`duckdb_connection()` in the same module is optional and creates views over every
+available table; install `duckdb` separately if wanted. It is not required by the
+pipeline.
+
+### Runtime, storage and API limits
+
+Metadata enumeration is comparatively fast. Trade and price stages make many
+requests and a 50,000-market run is expected to take hours to days depending on
+market age, activity, API latency and the configured global request rate. Use the
+200-market smoke run to measure this machine and API, then scale its elapsed time
+and disk bytes by `50,000 / 200`; price retention and trade density make this an
+estimate, not a guarantee.
+
+Gamma `volume`/`volumeNum` is **shares**, not dollars. Fine price resolutions have
+limited retention, so the downloader tries 60 seconds, 300 seconds, one hour, one
+day, then the API's automatic resolution, and records the actual resolution on
+every point. A successful empty result is recorded explicitly rather than filled.
+There is no public historical bid/ask or full order-book dataset; the deprecated
+Goldsky order-book subgraph is not used. The validation command reports, but does
+not abort on, trade/Gamma volume differences over 1%, duplicate fills, missing
+artifacts, winner inconsistencies, coverage and timestamp outliers.
 
 ## Development
 
@@ -238,6 +307,7 @@ python -m polytrader --help
 src/polytrader/
     bot/                # Read-only time-arbitrage scanner and strategy code
     orderbook/          # Full-depth snapshots and live event-wide books
+    research/           # Resumable one-year dataset pipeline and loaders
     cli.py              # CLI wrapper around the Python data API
     data/
         api.py          # fetch_price_history() orchestration
