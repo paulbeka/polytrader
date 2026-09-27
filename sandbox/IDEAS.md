@@ -9,7 +9,17 @@ If we have one expiry in Novermber with "no" trading at 0.48, and December "yes"
 
 We now need to verify if those opportunities exist and what the transaction costs are.
 
+Run for possible markets: 
+- https://polymarket.com/event/strait-of-hormuz-traffic-returns-to-normal-by-november-30-20260810151158765 
+- https://polymarket.com/event/russia-x-ukraine-ceasefire-agreement-by 
+- https://polymarket.com/event/openai-announces-another-millennium-prize-solution-by
+- https://polymarket.com/event/us-iran-ceasefire-continues-throughptptpt
+- https://polymarket.com/event/us-announces-end-of-iranian-blockade-byptptpt-20260713152715080
+
 
 ### Predicting time market price moves 
 
 Use some kind of logarithmic curve to try and predict the price moves of other markets when one increases.
+
+
+# Follow leaderboard traders
