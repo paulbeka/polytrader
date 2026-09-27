@@ -1,0 +1,41 @@
+# Ordered Polymarket references checked on 2026-09-27.
+# Run from repo root: python -m polytrader.bot.time_arbitrage --config <this-file> --validate
+# Only currently open contracts are included; remove entries as they close.
+version = 1
+
+[scanner]
+# Relative to this file. Retained from your example; adjust if its location differs.
+output_dir = "../../../../data/time_arbitrage/openai-millennium-prize"
+depth_mode = "top" # top or full; full consumes only the profitable depth prefix
+min_edge_per_pair = "0.001"
+min_total_profit = "0.10"
+min_shares = "1"
+max_shares = "1000"
+max_cost_per_opportunity = "500" # both legs, fees, estimated costs and buffer
+health_check_seconds = 1
+summary_seconds = 60
+update_log_seconds = 5
+
+[costs]
+fee_mode = "auto"
+unknown_fee_policy = "skip"
+extra_cost_per_pair = "0" # funding/redemption allocations excluded unless set
+fixed_cost_per_opportunity = "0" # once per two-leg batch
+execution_buffer_per_pair = "0.001"
+refresh_seconds = 300
+max_metadata_age_seconds = 900
+
+[[chains]]
+id = "openai-millennium-prize"
+enabled = true
+relation = "yes_implies_next_yes"
+# Array order is authoritative; it represents implication, not necessarily time.
+# Optional deadline fields are omitted: metadata endDate is not always the rule cutoff.
+# Event: https://polymarket.com/event/openai-announces-another-millennium-prize-solution-by
+# References below are individual market slugs, not the multi-market event slug.
+# Order: earliest to latest deadline.
+markets = [
+  { ref = "will-openai-announce-another-millennium-prize-solution-by-september-30-2026", label = "September 30, 2026" },
+  { ref = "will-openai-announce-another-millennium-prize-solution-by-december-31-2026", label = "December 31, 2026" },
+  { ref = "will-openai-announce-another-millennium-prize-solution-by-december-31-2027", label = "December 31, 2027" },
+]

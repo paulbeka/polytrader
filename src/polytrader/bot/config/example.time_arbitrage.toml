@@ -1,0 +1,43 @@
+# Copy to time_arbitrage.toml; configure the ordered market references below.
+# Run from repo root: python -m polytrader.bot.time_arbitrage --config <this-file> --validate
+version = 1
+
+[scanner]
+# Relative to this file: four levels up reaches the repository's ignored data/.
+output_dir = "../../../../data/time_arbitrage"
+depth_mode = "top" # top or full; full consumes only the profitable depth prefix
+min_edge_per_pair = "0.001"
+min_total_profit = "0.10"
+min_shares = "1"
+max_shares = "1000"
+max_cost_per_opportunity = "500" # both legs, fees, estimated costs and buffer
+health_check_seconds = 1
+summary_seconds = 60
+update_log_seconds = 5
+
+[costs]
+fee_mode = "auto"
+unknown_fee_policy = "skip"
+extra_cost_per_pair = "0" # funding/redemption allocations excluded unless set
+fixed_cost_per_opportunity = "0" # once per two-leg batch
+execution_buffer_per_pair = "0.001"
+refresh_seconds = 300
+max_metadata_age_seconds = 900
+
+[[chains]]
+id = "hormuz-normalisation"
+enabled = true
+relation = "yes_implies_next_yes"
+# Array order is authoritative. Add further dates to scan every earlier/later pair.
+# Optional deadline must have a timezone and describe the actual contract cutoff.
+markets = [
+  { ref = "https://polymarket.com/event/strait-of-hormuz-traffic-returns-to-normal-by-september-30-20260702154339440", label = "October" },
+  { ref = "https://polymarket.com/event/strait-of-hormuz-traffic-returns-to-normal-by-october-31-20260810151043583", label = "November" },
+  { ref = "https://polymarket.com/event/strait-of-hormuz-traffic-returns-to-normal-by-november-30-20260810151158765", label = "December" },
+]
+
+[[chains]]
+id = "another-event"
+enabled = false
+relation = "yes_implies_next_yes"
+markets = ["<earlier-market-slug>", "<later-market-slug>"]

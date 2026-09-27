@@ -11,6 +11,4 @@ dist/
 /data/
 /runs/
 /src/polytrader/bot/data/
-/src/polytrader/bot/config/*.toml
-!/src/polytrader/bot/config/*.example.toml
 .ipynb_checkpoints/

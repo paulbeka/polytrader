@@ -1,0 +1,46 @@
+# Ordered Polymarket references checked on 2026-09-27.
+# Run from repo root: python -m polytrader.bot.time_arbitrage --config <this-file> --validate
+# Only currently open contracts are included; remove entries as they close.
+version = 1
+
+[scanner]
+# Relative to this file. Retained from your example; adjust if its location differs.
+output_dir = "../../../../data/time_arbitrage/iranian-blockade-end"
+depth_mode = "top" # top or full; full consumes only the profitable depth prefix
+min_edge_per_pair = "0.001"
+min_total_profit = "0.10"
+min_shares = "1"
+max_shares = "1000"
+max_cost_per_opportunity = "500" # both legs, fees, estimated costs and buffer
+health_check_seconds = 1
+summary_seconds = 60
+update_log_seconds = 5
+
+[costs]
+fee_mode = "auto"
+unknown_fee_policy = "skip"
+extra_cost_per_pair = "0" # funding/redemption allocations excluded unless set
+fixed_cost_per_opportunity = "0" # once per two-leg batch
+execution_buffer_per_pair = "0.001"
+refresh_seconds = 300
+max_metadata_age_seconds = 900
+
+[[chains]]
+id = "iranian-blockade-end"
+enabled = true
+relation = "yes_implies_next_yes"
+# Array order is authoritative; it represents implication, not necessarily time.
+# Optional deadline fields are omitted: metadata endDate is not always the rule cutoff.
+# Event: https://polymarket.com/event/us-announces-end-of-iranian-blockade-byptptpt-20260713152715080
+# References below are individual market slugs, not the multi-market event slug.
+# Order: earliest to latest deadline.
+# Creation dates differ. Confirm no qualifying announcement predates a later contract
+# before relying on cross-contract implication; the rule window starts at market creation.
+markets = [
+  { ref = "us-announces-end-of-iranian-blockade-by-september-30-2026-20260727171615364-722-649-646-561-213-644-414-831", label = "September 30, 2026" },
+  { ref = "us-announces-end-of-iranian-blockade-by-october-15-2026", label = "October 15, 2026" },
+  { ref = "us-announces-end-of-iranian-blockade-by-october-31-2026-20260727171711632-895-372-622-413-171-454-592-696", label = "October 31, 2026" },
+  { ref = "us-announces-end-of-iranian-blockade-by-november-30-2026", label = "November 30, 2026" },
+  { ref = "us-announces-end-of-iranian-blockade-by-december-31-2026-20260727171803489-375-949-645-919-269-157-255-857", label = "December 31, 2026" },
+  { ref = "us-announces-end-of-iranian-blockade-by-march-31-2027", label = "March 31, 2027" },
+]
