@@ -21,5 +21,7 @@ Run for possible markets:
 
 Use some kind of logarithmic curve to try and predict the price moves of other markets when one increases.
 
+If there's a spike can we expect it to move back to its mean?
+
 
 # Follow leaderboard traders
