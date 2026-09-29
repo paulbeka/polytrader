@@ -25,3 +25,5 @@ If there's a spike can we expect it to move back to its mean?
 
 
 # Follow leaderboard traders
+
+Look at the top traders and follow their moves.
