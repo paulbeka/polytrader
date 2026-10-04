@@ -293,6 +293,19 @@ artifacts, winner inconsistencies, coverage and timestamp outliers.
 
 ## Development
 
+The [lead/follower paper trader](src/polytrader/bot/lead_follower/README.md) detects
+directional trade bursts and lagging related deadline contracts, then tracks
+hypothetical entries and first profitable bid-side exits. It includes slippage,
+excludes fees, and records losses and unresolved positions alongside profits.
+
+```powershell
+python -m polytrader.bot.lead_follower "<event-slug>" --leader "<leader-market-slug>" --duration 3600
+```
+
+Use repeatable `--follower` filters, `--validate`, or `--config` for multiple events.
+Session logs and replay inputs default to `data/lead_follower/`. The bot can run
+alongside `time_arbitrage`; both remain read-only.
+
 The [time-arbitrage scanner](src/polytrader/bot/time_arbitrage/README.md) lives in
 `polytrader.bot`. Configure ordered, reviewed market chains to scan earlier-NO /
 later-YES asks, including fee-aware sizing, full depth, and persistent opportunity

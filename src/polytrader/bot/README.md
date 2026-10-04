@@ -12,3 +12,9 @@ The [time-arbitrage scanner](time_arbitrage/README.md) scans user-reviewed order
 market chains, sizes earlier-NO / later-YES quoted opportunities, and saves
 fee-aware lifecycle records. It is read-only and places no orders. Importing the
 package starts no processes and makes no network requests.
+
+The [lead/follower paper trader](lead_follower/README.md) detects leader price and
+trade-flow bursts followed by lagging related markets. Price movement is optional
+confirmation; candidate logs include rejected bursts. It simulates depth-based
+entries and exits, includes slippage, excludes fees, and saves replayable inputs
+and hypothetical P&L. Run it alongside time arbitrage in a separate process.

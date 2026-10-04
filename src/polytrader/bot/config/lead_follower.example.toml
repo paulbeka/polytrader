@@ -1,0 +1,41 @@
+# Copy to a local file, replace market references, then run:
+# python -m polytrader.bot.lead_follower --config <your-file.toml> --validate
+version = 1
+# Paths are relative to THIS config file, not the working directory.
+output_dir = "../../../../data/lead_follower"
+
+[settings]
+lookback_seconds = 30
+baseline_seconds = 3600         # Trailing history BEFORE the current window
+warmup_seconds = 60            # Partial baseline coverage is logged explicitly
+candidate_min_trades = 2       # Research rows, even when entry filters fail
+min_trades = 3                 # Required for a paper trade
+min_burst_score = "3"          # count / max(1, expected count from preceding rate)
+min_move_pp = "0"              # Disabled; positive values opt into price confirmation
+min_volume = "100"              # Leader YES-token traded shares per lookback
+min_imbalance = "0.6"           # Absolute (BUY shares - SELL shares) / all shares
+max_follower_fraction = "0.25"  # Applies only when leader movement is nonzero
+min_price_age_seconds = 10
+min_age_gap_seconds = 5         # Latest leader trade time minus follower price-change time
+max_spread = "0.04"             # Price dollars, .04 = four cents
+shares = "10"
+cash_per_position = "20"
+total_cash = "100"              # Concurrent committed/reserved cash cap
+slippage_per_share = "0.001"    # Additional adverse allowance on EACH leg
+min_profit = "0.01"            # Total dollars per position, after slippage
+stop_loss = "1"                # Total dollars per position
+max_hold_seconds = 300
+entry_latency_seconds = 0.25
+exit_latency_seconds = 0.25
+sell_delay_seconds = 1          # Paper assumption, not exchange settlement timing
+cooldown_seconds = 60
+entry_timeout_seconds = 10
+max_feed_delay_seconds = 10
+
+[[groups]]
+id = "deadline-family"
+event = "<event-url-or-slug>"
+leader = "<leader-market-slug>"
+followers = ["<follower-market-slug>"]
+# Omit followers to include other eligible binary markets in this event.
+# Add more [[groups]] blocks for other events. All groups share one subscription.

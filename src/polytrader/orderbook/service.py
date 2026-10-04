@@ -20,7 +20,8 @@ class OrderBookService:
     """
 
     def __init__(self, collection: OrderBooks, *, client=None, max_retries=5,
-                 retry_delay=1.0, snapshot_timeout=30.0, allow_missing_snapshots=False):
+                 retry_delay=1.0, snapshot_timeout=30.0, allow_missing_snapshots=False,
+                 on_event=None):
         if not collection.books:
             raise ValueError("At least one outcome token is required")
         if max_retries is not None and (not isinstance(max_retries, int) or max_retries < 0):
@@ -35,6 +36,11 @@ class OrderBookService:
         self.retry_delay = retry_delay
         self.snapshot_timeout = snapshot_timeout
         self.allow_missing_snapshots = allow_missing_snapshots
+        # Optional synchronous observer: called after each complete wire message
+        # is applied, before notifications can coalesce. None denotes a heartbeat
+        # or invalidation; inspect healthy/continuity. DataError requests resync;
+        # other errors follow the service's existing exception handling.
+        self.on_event = on_event
         self._engines = {token: OrderBook(token) for token in collection.books}
         self._pending = OrderedDict()
         self._wake = asyncio.Event()
@@ -67,6 +73,8 @@ class OrderBookService:
             if book.snapshot.status != "unavailable":
                 book.invalidate(reason)
                 self._publish(token)
+        if self.on_event is not None:
+            self.on_event(None, self)
 
     async def __aenter__(self):
         if self._task is not None:
@@ -178,6 +186,8 @@ class OrderBookService:
                                 if not isinstance(message, dict):
                                     raise DataError("Expected a market stream object")
                                 self._process(message, ready)
+                            if self.on_event is not None:
+                                self.on_event(message, self)
                             if all(b.snapshot.status == "unavailable" for b in self._engines.values()):
                                 return
                             if not (set(tokens) - ready) and loop.time() - started >= 60:
@@ -192,7 +202,12 @@ class OrderBookService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            self._invalidate(str(exc))
             self._error = exc
+            try:
+                self._invalidate(str(exc))
+            except Exception as observer_error:
+                # An observer/persistence failure must not hide the terminal
+                # error and make consumers mistake this for normal completion.
+                self._error = observer_error
         finally:
             self._wake.set()
