@@ -24,6 +24,8 @@ Use some kind of logarithmic curve to try and predict the price moves of other m
 If there's a spike can we expect it to move back to its mean?
 
 
-# Follow leaderboard traders
+# Follow top traders and learn their strategy
 
-Look at the top traders and follow their moves.
+# Event probability decay 
+
+As time moves forward, you should buy "No" if there's been no trades/low volume
