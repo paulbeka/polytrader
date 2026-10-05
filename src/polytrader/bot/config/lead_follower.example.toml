@@ -30,7 +30,7 @@ exit_latency_seconds = 0.25
 sell_delay_seconds = 1          # Paper assumption, not exchange settlement timing
 cooldown_seconds = 60
 entry_timeout_seconds = 10
-max_feed_delay_seconds = 10
+# No market-activity or source-timestamp age limit. Transport heartbeats govern health.
 
 [[groups]]
 id = "deadline-family"

@@ -3,7 +3,6 @@
 import asyncio
 
 from polytrader.data import DataError
-from polytrader.orderbook.client import timestamp
 from polytrader.orderbook.service import OrderBookService
 from .engine import Engine
 from .feed import parse_trade, utc_now
@@ -39,18 +38,16 @@ async def run(config, families, collection, *, duration=None, client=None):
             continuity = source.continuity
             healthy = False
         try:
-            trade = parse_trade(message, engine.leaders, utc, config.settings.max_feed_delay_seconds)
-            if message and message.get("timestamp") is not None:
-                delay = abs((utc - timestamp(message["timestamp"])).total_seconds())
-                if delay > config.settings.max_feed_delay_seconds:
-                    raise DataError("Wire message outside feed delay tolerance")
+            trade = parse_trade(message, engine.leaders, utc)
         except DataError as exc:
             healthy, reason, trade = False, str(exc), None
         changed = {t: b.to_dict() for t, b in collection.books.items() if previous.get(t) is not b}
         previous.update(collection.books)
         # Persist before processing; replay observes the identical state and time.
         row = dict(elapsed_seconds=now, utc=utc.isoformat(), books=changed,
-                   trade=trade, healthy=healthy, reason=reason)
+                   trade=trade, healthy=healthy, reason=reason,
+                   wire_event_type=message.get("event_type") if message else None,
+                   wire_source_timestamp=message.get("timestamp") if message else None)
         session.input(row)
         engine.observe(now, row["utc"], collection.books, trade=trade, healthy=healthy, reason=reason)
         last_health = healthy
@@ -60,7 +57,10 @@ async def run(config, families, collection, *, duration=None, client=None):
 
     try:
         print(f"Session: {session.directory}", flush=True)
-        async with OrderBookService(collection, client=client, on_event=observe) as service:
+        # Heartbeats determine transport liveness. A healthy subscription can wait
+        # indefinitely for quiet/missing books; those books cannot qualify entries.
+        async with OrderBookService(collection, client=client, on_event=observe,
+                                    max_retries=None, allow_missing_snapshots=True) as service:
             while duration is None or loop.time() - started < duration:
                 if service._task.done():
                     if service._error:

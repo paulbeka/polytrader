@@ -255,9 +255,18 @@ class FeedConfigTests(unittest.TestCase):
         self.assertEqual(row["signed_size"], -10)
         self.assertEqual(parse_trade(raw, {"ly"}, UTC, 10), row)
         self.assertIsNone(parse_trade(dict(raw, asset_id="ln"), {"ly"}, UTC, 10))
-        for changed in [dict(raw, size=None), dict(raw, side="?"), dict(raw, timestamp="0")]:
+        for changed in [dict(raw, size=None), dict(raw, side="?"), dict(raw, timestamp="invalid")]:
             with self.assertRaises(DataError):
                 parse_trade(changed, {"ly"}, UTC, 10)
+
+    def test_old_and_future_trade_timestamps_are_analysis_not_health(self):
+        for hours in (-3, 3):
+            source = UTC + timedelta(hours=hours)
+            raw = dict(event_type="last_trade_price", asset_id="ly", price=".4", size="10",
+                       side="BUY", timestamp=str(int(source.timestamp() * 1000)))
+            parsed = parse_trade(raw, {"ly"}, UTC, 1)
+            self.assertEqual(parsed["source_time"], source)
+            self.assertEqual(parsed["source_to_receipt_seconds"], -hours * 3600)
 
     def test_bad_settings_rejected(self):
         for kwargs in [dict(shares="NaN"), dict(lookback_seconds=-1), dict(min_burst_score=".1"),
@@ -500,6 +509,113 @@ class ReplayTests(unittest.TestCase):
 
 
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hours_without_market_activity_leave_service_and_strategy_healthy(self):
+        elapsed = 0
+        calls = 0
+        done = asyncio.Event()
+        tokens = ("ly", "ln", "fy", "fn")
+        collection = OrderBooks({}, {t: MarketReference(t) for t in tokens},
+                                {t: BookSnapshot(t) for t in tokens})
+        rows = []
+        engine = Engine((FAMILY,), settings(), rows.append)
+        class Feed:
+            async def stream(self, selected):
+                nonlocal elapsed, calls
+                calls += 1
+                for token in selected:
+                    yield dict(event_type="book", asset_id=token, timestamp="0",
+                               bids=[dict(price=".28", size="100")], asks=[dict(price=".30", size="100")])
+                elapsed = 1
+                yield {"event_type": "test_trade"}
+                # Virtual observation time advances three hours without sleeping.
+                for elapsed in (3600, 7200, 10800):
+                    yield None
+                done.set()
+                await asyncio.Event().wait()
+        def observe(message, source):
+            engine.observe(elapsed, (UTC + timedelta(seconds=elapsed)).isoformat(), collection.books,
+                           healthy=source.healthy,
+                           trade=trade() if message and message.get("event_type") == "test_trade" else None)
+        async with OrderBookService(collection, client=Feed(), on_event=observe,
+                                    allow_missing_snapshots=True, max_retries=None) as service:
+            await asyncio.wait_for(done.wait(), 2)
+            self.assertTrue(service.healthy)
+            self.assertEqual(service.continuity, 0)
+            self.assertEqual(calls, 1)
+            self.assertEqual(engine.started, 0)
+            self.assertFalse(any(r["type"] == "signals_paused" for r in rows))
+            self.assertEqual(elapsed - engine.price_changes["fy"], 10800)
+            self.assertEqual(elapsed - engine.last_trade_time["ly"], 10799)
+            engine.observe(10801, UTC.isoformat(), collection.books, trade=trade("40"))
+            self.assertEqual(engine.previous_gap["ly"], 10800)
+            engine.observe(10802, UTC.isoformat(), collection.books, trade=trade("40"))
+            candidate = next(r for r in reversed(rows) if r["type"] == "burst_candidate")
+            self.assertEqual(candidate["follower_quote_age_seconds"], 10802)
+            self.assertEqual(candidate["gap_before_cluster_seconds"], 10800)
+            elapsed = 10802
+
+    async def test_actual_close_pauses_resubscribes_and_requires_new_books(self):
+        tokens = ("ly", "ln", "fy", "fn")
+        collection = OrderBooks({}, {t: MarketReference(t) for t in tokens},
+                                {t: BookSnapshot(t) for t in tokens})
+        calls, elapsed = 0, 0
+        done = asyncio.Event()
+        rows, states = [], []
+        engine = Engine((FAMILY,), settings(), rows.append)
+        class Feed:
+            async def stream(self, selected):
+                nonlocal calls, elapsed
+                calls += 1
+                if calls == 2:
+                    elapsed = 100
+                    # A delta before the new snapshot cannot revive old depth.
+                    yield dict(event_type="price_change", timestamp="1", price_changes=[
+                        dict(asset_id="ly", side="BUY", price=".28", size="999")])
+                for token in selected:
+                    yield dict(event_type="book", asset_id=token, timestamp="0",
+                               bids=[dict(price=".28", size="100")], asks=[dict(price=".30", size="100")])
+                if calls == 1:
+                    return  # An actual stream close, not market inactivity.
+                done.set()
+                await asyncio.Event().wait()
+        def observe(message, source):
+            states.append((source.healthy, collection.books["ly"].status))
+            engine.observe(elapsed, UTC.isoformat(), collection.books, healthy=source.healthy)
+        async with OrderBookService(collection, client=Feed(), on_event=observe,
+                                    retry_delay=0, max_retries=None, allow_missing_snapshots=True) as service:
+            await asyncio.wait_for(done.wait(), 2)
+            self.assertEqual(calls, 2)
+            self.assertEqual(service.continuity, 1)
+            self.assertIn((False, "stale"), states)
+            self.assertIn((True, "stale"), states)
+            self.assertEqual(collection.books["ly"].best_bid.size, 100)
+            self.assertTrue(service.healthy)
+            self.assertEqual(engine.started, 100)
+            self.assertTrue(any(r["type"] == "signals_paused" for r in rows))
+            self.assertEqual(sum(r["type"] == "warmup_started" for r in rows), 2)
+
+    async def test_missing_initial_book_does_not_reconnect_healthy_transport(self):
+        done = asyncio.Event()
+        calls = 0
+        class Feed:
+            async def stream(self, tokens):
+                nonlocal calls
+                calls += 1
+                yield None
+                await asyncio.sleep(.02)
+                yield None
+                yield None
+                done.set()
+                await asyncio.Event().wait()
+        collection = OrderBooks({}, {"ly": MarketReference("ly")}, {"ly": BookSnapshot("ly")})
+        async with OrderBookService(collection, client=Feed(), snapshot_timeout=.001,
+                                    allow_missing_snapshots=True, max_retries=None) as service:
+            await asyncio.wait_for(done.wait(), 2)
+            self.assertTrue(service.healthy)
+            self.assertEqual(calls, 1)
+            self.assertEqual(service.continuity, 0)
+            self.assertEqual(collection.books["ly"].status, "stale")
+
     async def test_observer_failure_is_exposed_to_consumers(self):
         class Feed:
             async def stream(self, tokens):
@@ -543,21 +659,33 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_bounded_runner_records_and_replays_without_network(self):
         class Feed:
+            calls = 0
             async def stream(self, tokens):
+                self.calls += 1
                 for token in tokens:
                     yield dict(event_type="book", asset_id=token,
-                               timestamp=str(int(datetime.now(timezone.utc).timestamp() * 1000)),
+                               timestamp="0",  # Quiet snapshot may be arbitrarily old.
                                bids=[dict(price=".28", size="100")], asks=[dict(price=".30", size="100")])
+                yield dict(event_type="last_trade_price", asset_id="ly", timestamp="0",
+                           price=".30", size="1", side="BUY")
                 await asyncio.Event().wait()
         tokens = ("ly", "ln", "fy", "fn")
         collection = OrderBooks({}, {t: MarketReference(t) for t in tokens},
                                 {t: BookSnapshot(t) for t in tokens})
         with tempfile.TemporaryDirectory() as root, redirect_stdout(io.StringIO()):
             config = Config((Group("g", "event", "leader"),), settings(), Path(root))
-            path = await run(config, (FAMILY,), collection, duration=.15, client=Feed())
+            feed = Feed()
+            path = await run(config, (FAMILY,), collection, duration=.15, client=feed)
             summary = json.loads((path / "summary.json").read_text())
             self.assertEqual(summary["termination"], "duration")
             self.assertEqual(replay(path)["closed_pnl"], 0)
+            self.assertEqual(feed.calls, 1)
+            events = [json.loads(line) for line in (path / "events.jsonl").read_text().splitlines()]
+            self.assertFalse(any(r["type"] == "signals_paused" for r in events))
+            inputs = [json.loads(line) for line in (path / "inputs.jsonl").read_text().splitlines()]
+            self.assertTrue(any(r["wire_source_timestamp"] == "0" for r in inputs))
+            recorded_trade = next(r["trade"] for r in inputs if r["trade"])
+            self.assertEqual(recorded_trade["source_time"], "1970-01-01T00:00:00+00:00")
 
 
 if __name__ == "__main__":

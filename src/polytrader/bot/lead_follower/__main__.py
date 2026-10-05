@@ -36,7 +36,9 @@ def main(argv=None):
         parser.add_argument("--" + f.name.replace("_", "-"), dest=f.name,
                             type=(int if f.name in {"min_trades", "candidate_min_trades"} else
                                   float if isinstance(f.default, (float, int)) else str),
-                            help=("Optional aligned price confirmation; 0 disables (default)."
+                            help=("Deprecated and ignored; source age does not determine feed health."
+                                  if f.name == "max_feed_delay_seconds" else
+                                  "Optional aligned price confirmation; 0 disables (default)."
                                   if f.name == "min_move_pp" else f"Default: {f.default}"))
     args = parser.parse_args(argv)
     try:

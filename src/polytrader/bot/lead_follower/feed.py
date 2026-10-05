@@ -7,7 +7,8 @@ from polytrader.orderbook.book import decimal_value
 from polytrader.orderbook.client import timestamp
 
 
-def parse_trade(message, leader_tokens, received_at, max_delay):
+def parse_trade(message, leader_tokens, received_at, max_delay=None):
+    """Validate structure, not age. max_delay is an ignored compatibility argument."""
     if not message or message.get("event_type") != "last_trade_price":
         return None
     token = message.get("asset_id")
@@ -21,14 +22,12 @@ def parse_trade(message, leader_tokens, received_at, max_delay):
     if not size:
         raise DataError("Trade size must be positive")
     source = timestamp(message.get("timestamp"))
-    delay = (received_at - source).total_seconds()
-    if delay > max_delay or delay < -max_delay:
-        raise DataError("Trade timestamp outside feed delay tolerance")
     # Only canonical leader YES tokens are aggregated. Do not deduplicate by
     # transaction hash: one transaction can contain multiple legitimate fills.
     return {"token": token, "price": price, "size": size, "side": side,
             "signed_size": size if side == "BUY" else -size,
             "source_time": source, "received_time": received_at,
+            "source_to_receipt_seconds": (received_at - source).total_seconds(),
             "transaction_hash": message.get("transaction_hash")}
 
 

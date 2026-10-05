@@ -1,54 +1,190 @@
-# lead_follower: implementation context
+# lead_follower: development and operating context
 
-## Objective and scope
+Updated: 4 October 2026. Repository: `C:/Workspace/polytrader`.
+This is a handoff for continuing work on the bot. Check current source before
+changing behavior; do not assume a previous process is still running.
 
-Build `polytrader.bot.lead_follower`, a live detector and paper-trading tracker for delayed price adjustment between related deadline contracts. A sudden directional trade burst in a normally quiet leader may precede a less-liquid follower's response, even without a leader price move. This is a statistical hypothesis, not a guaranteed deadline arbitrage.
+## Purpose and current status
 
-Version one places no orders. It logs signals, simulates executable entries and exits, and reports hypothetical profit or loss. Transaction fees are explicitly zero; include spread, depth slippage and a configurable adverse slippage allowance on both legs. Implementation authorized and completed; see `src/polytrader/bot/lead_follower/README.md` for the implemented behavior and defaults.
+`polytrader.bot.lead_follower` is a public-data detector and **paper trader** for
+related Polymarket deadline contracts. Its research question is whether concentrated
+directional trading in a normally quiet leader precedes a response in less-liquid
+followers. It is not guaranteed arbitrage and does not assume equal probabilities
+across deadlines.
 
-## Subscription and coexistence
+The bot is implemented. Strategy v2 uses **trade bursts**, replacing v1's mandatory
+leader price movement. It places no orders, needs no wallet, excludes transaction
+fees by user request, and includes spread, depth consumption and extra slippage.
+The former live-feed timestamp issue is fixed as described below. Passing tests
+does not establish profitable trading or reliable operation for every live market.
 
-Quick-start command:
+The separate `time_arbitrage` bot detects earlier-NO/later-YES opportunities.
+Both can run concurrently in separate processes. Each process owns its own feed;
+multiple lead/follower families within one session share one subscription.
 
-```powershell
-python -m polytrader.bot.lead_follower "<event-url-or-slug>" --leader "<market-slug>" --duration 3600
+## Signal rules and research defaults
+
+The leader is selected explicitly. Only its YES-token trade tape contributes to
+activity, avoiding aggregation of complementary YES/NO reports. BUY/SELL is treated
+as feed-reported token direction, not certified aggressor-side information. Identical
+messages are retained: a transaction hash is not a unique fill identifier.
+
+Default entry qualification requires:
+
+- 60 seconds of uninterrupted feed observation.
+- At least 3 leader trades and 100 traded shares within 30 seconds.
+- Absolute `(BUY shares - SELL shares) / total shares` of at least 0.6.
+- Activity acceleration score of at least 3.
+- Follower YES bid/ask prices unchanged for at least 10 seconds, and the latest
+  leader trade at least 5 seconds after that price change.
+- If leader midpoint movement is nonzero, absolute follower movement no greater
+  than 25% of the leader's movement.
+- Valid selected books, available entry depth, spread and position/cash limits.
+
+The baseline covers up to 3,600 seconds **before** the current activity window:
+
+```text
+expected_count = preceding_trade_count / observed_preceding_seconds * window_seconds
+burst_score = current_trade_count / max(1, expected_count)
 ```
 
-Discover the event's eligible YES/NO markets. Require an explicit leader initially; default followers to the other eligible deadline markets, with repeatable `--follower` filters. Print resolved markets and tokens before scanning. Membership in one event does not establish comparable rules: users select a compatible deadline family. Later deadlines need not be leaders, and followers need not converge to the leader's absolute price.
+This recognizes bursts after observed silence without infinite ratios. Partial
+baseline coverage is logged; missing pre-session history is not treated as silence.
+The score is a heuristic, not statistical significance.
 
-Also support `--config <file.toml>` for multiple event groups and thresholds, plus `--validate` for discovery without streaming. Reuse `OrderBookService` and Decimal-based depth calculations. Keep strategy logic independent of connection ownership so a future combined runner can fan out one feed to multiple strategies. Initially, `lead_follower` and `time_arbitrage` can run concurrently as separate processes with separate logs and subscriptions.
+Positive imbalance buys follower YES; negative imbalance buys follower NO.
+Leader midpoint changes over 5/10/30 seconds, spread and book reactions are logged
+features, not mandatory triggers. `min_move_pp` defaults to 0; setting it positive
+explicitly requires an aligned price move as additional confirmation. The former
+`volume_ratio` config setting is retired; use `min_burst_score` instead.
 
-## Signal and data requirements
+## Candidate collection
 
-Maintain rolling histories per market. After a configurable warm-up, evaluate:
+On each new leader trade, once there are at least 2 trades in the activity window,
+write a `burst_candidate` per follower **before entry filtering**. Include rejected
+candidates during warm-up, weak flow, low volume, insufficient acceleration,
+follower movement, fresh quotes, invalid books, wide entry spreads, inadequate
+depth, occupied positions and cooldowns. Log all rejection reasons, qualification,
+and IDs linking accepted candidates to signals and positions.
 
-- Trade counts, shares, BUY/SELL volumes and inter-arrival statistics over 10/30 seconds; leader YES midpoint changes over 5/10/30 seconds are features, not mandatory triggers.
-- Actual trade share volume relative to a preceding baseline, and signed buying/selling imbalance. Version one uses the leader's YES-token tape only, avoiding double-counting complementary YES/NO reports. NO-only activity is excluded. BUY/SELL is interpreted as feed-reported direction; the public schema does not explicitly certify aggressor-side semantics.
-- Follower movement over the same window: when leader movement is nonzero, it must be at most 25% as large in absolute terms.
-- Time since the follower's best bid/ask prices changed, relative to the latest leader trade, plus spread and available depth. Track size changes separately so replenishment does not reset price age.
+Features include 10s/30s counts and volume, BUY/SELL shares, imbalance, trades per
+second, inter-arrival statistics, previous-trade and pre-cluster gaps, baseline
+coverage, price movements, follower quotes/age and leader depth changes. Depth
+reductions can be cancellations; they are not proof of consumed liquidity.
+Unavailable historical features remain null. Repeated cluster updates are correlated
+research rows, not independent opportunities. Timers do not repeat candidate rows.
 
-Strategy v2 defaults require three trades and 100 shares in 30 seconds, absolute imbalance >= 0.6, score >= 3 and stale follower prices. The score is current count divided by max(1, count expected from preceding observed trade frequency), so a zero-volume baseline can still identify a burst. Use up to one hour of preceding history, with 60 seconds of warm-up and explicit partial-coverage metadata. `min_move_pp=0` disables price confirmation; positive values explicitly opt in. Direction comes from imbalance. Record a research candidate per new leader trade/follower once the window contains two trades, including all rejected candidates, feature values and exact reasons. Use only information received by decision time. Disconnected or stale-status books are invalid data, not opportunities. Preserve v1 replay through its frozen detector; new sessions record strategy version 2.
+## Paper execution
 
-The orderbook service now has an opt-in synchronous event hook after each complete wire message. The bot normalizes individual trade events without coalescing them like book notifications. Invalid trade inputs, delayed messages or reconnect gaps suspend signals and restart warm-up; quote updates are never presented as traded volume. This remains an observed feed, not independently reconciled exchange-wide activity.
+Defaults: 10 target shares, $20 per-position cash cap, $100 concurrent cash cap,
+maximum entry spread $0.04, and an extra $0.001 per-share slippage allowance on each
+leg. Entry/exit latency is 0.25 seconds; sell availability is delayed 1 second.
+These delays are modeling assumptions, not verified exchange settlement guarantees.
 
-## Hypothetical entry and immediate profitable exit
+Buy through observed ask depth. After sell availability, request the first full-size
+bid-side exit producing at least $0.01 total profit after slippage. Recheck after
+exit latency; cancel a profit exit if the opportunity disappears. Also request exits
+at a $1 loss or 300-second holding limit. A stop-loss request stays committed through
+latency even if prices recover. Insufficient exit depth leaves an unresolved position.
 
-A positive leader imbalance buys follower YES; a negative imbalance buys follower NO. This allows both directions without assuming an existing position to sell short.
+There are no partial fills or assumed resting-limit fills. One pending/open position
+per follower applies across groups; cooldown is 60 seconds and restarts on exit.
+Do not subtract spread/depth slippage twice. Closed P&L excludes open liquidation
+marks, and unresolved positions do not become wins. Sessions do not resume positions
+after a process restart. Actual fills, order minimums and queue priority are not certified.
 
-At detection, size within configured share and cash limits. Simulate buying against current ask depth, using volume-weighted cost plus adverse slippage. Reject insufficient depth or invalid books. Log the signal even if entry is rejected. Use configurable entry/exit latency, taking the first observed valid book after each delay; no retrospective fill at a missed quote.
+## Running and outputs
 
-Once the simulated entry is filled and the configured sell-availability delay has elapsed, evaluate every subsequent book update. Sell at the first opportunity where available bid depth would close the entire position above its total entry cost plus a configurable minimum profit. Recheck profitability after exit latency; if it disappears, keep monitoring. Use marketable bid-side exits rather than assuming a resting ask will fill. Version one closes the full position, with no partial exits.
+From the repository root, this command selects the user's December leader and
+November/October followers for a four-hour run, with price confirmation disabled:
 
-`paper P&L = bid-depth sale proceeds - ask-depth purchase cost - entry/exit slippage allowances`
+```text
+.venv\Scripts\python.exe -m polytrader.bot.lead_follower "https://polymarket.com/event/russia-x-ukraine-ceasefire-agreement-by" --leader "russia-x-ukraine-ceasefire-agreement-by-december-31-2026" --follower "russia-x-ukraine-ceasefire-agreement-by-november-30-2026" --follower "russia-x-ukraine-ceasefire-agreement-by-october-31-2026" --min-move-pp 0 --duration 14400
+```
 
-Depth consumption already captures spread and depth slippage; do not subtract them twice. A leader move is not a reliable estimate of follower upside. Version one records that hypothesis and measures subsequent outcomes, rather than claiming a profitable exit is known at entry.
+Use `--validate` for discovery without streaming; `--config <file.toml>` supports
+multiple groups. Config-relative output paths use the config directory. Omitting
+followers selects the other eligible binary markets; it does not verify comparable
+resolution rules. Rediscover markets if eligibility changes.
 
-Add configurable maximum holding time and stop-loss. Attempt a depth-based exit when either triggers, recording losses as well as wins. If exit liquidity is unavailable, retain an unresolved position. At shutdown, report open positions and their available liquidation marks separately from closed P&L. Allow one open position per follower market and a signal cooldown; never count repeated triggers as independent profits.
+Unique sessions under `data/lead_follower/` contain:
 
-## Logs, reporting and verification
+- `metadata.json`: settings, selected markets, assumptions and strategy version.
+- `inputs.jsonl`: normalized trades, full changed depth, observation times and health.
+- `events.jsonl`: research candidates and position/feed lifecycle events.
+- `summary.json`: candidate/rejection counts, closed P&L, holding times and open marks.
 
-Write unique sessions under `data/lead_follower/`: resolved metadata/configuration, append-only lifecycle JSONL, and a final summary. Record UTC/source/receipt times, signal and position IDs, tokens, direction, features, depth used, size, modeled fills, slippage, rejection reasons, exit reason, holding time, P&L and feed interruptions. Label all results hypothetical and fee-excluded.
+`python -m polytrader.bot.lead_follower --replay <session-directory>` is offline.
+New sessions record `strategy_version=2`; old metadata without it uses the frozen
+v1 price detector. Do not silently reinterpret old sessions with new signal rules.
+Recording is unbounded; use duration limits and monitor storage.
 
-Summaries include detections, rejected entries, opened/closed/unresolved positions, wins/losses, closed P&L and time to exit, grouped by event and follower. Preserve signals that never became profitable to avoid winner-only reporting.
+## Feed health: quiet snapshot timestamp issue fixed
 
-Use deterministic offline tests for both directions, time alignment, warm-up and gaps, depth/slippage arithmetic, delayed sell availability, disappearing exit opportunities, losing/time-limited exits and duplicate-signal suppression. Existing compact quote recordings lack trades and full depth; this bot records normalized trades, full changed depth and health/timing observations in `inputs.jsonl`, with offline `--replay` support.
+The user's session `data/lead_follower/20261004T205041Z-37113c18` repeatedly reported:
+
+```text
+signals_paused   Wire message outside feed delay tolerance
+```
+
+Previously, `runner.py` compared every timestamped wire message against local UTC
+with a 10-second tolerance. The log showed December book state timestamped
+`20:50:06.739 UTC` arriving at `20:50:42.119 UTC`, about 35 seconds later. November
+also arrived with an older timestamp. These triggered reconnects and warm-up resets;
+repeated failures can exhaust retries.
+
+**Fixed:** source-timestamp age checks have been removed for both book messages and
+trade messages. No maximum age applies to trades, books or quote changes. A quiet
+market remains connected while its WebSocket transport is healthy. The old
+`max_feed_delay_seconds` setting/flag is accepted but ignored for compatibility.
+
+Only transport closure/errors, heartbeat failure or malformed/unrecoverable stream
+state cause resynchronization. Retry attempts continue with bounded backoff until
+shutdown. Missing initial snapshots do not force reconnects on a healthy transport;
+those books remain ineligible until a snapshot arrives. Out-of-order book updates
+remain consistency errors; this is sequence validation, not wall-clock age checking.
+
+Input logs preserve wire event type/source timestamp and UTC receipt time. Trade
+records include source-to-receipt seconds for analysis. Quote age and time since
+previous trades remain strategy features. Regression coverage includes three
+simulated hours without market activity, arbitrarily old snapshots/trades, healthy
+ping/pong without market messages, real disconnect/resubscription and feature ages.
+
+Guiding rule: **Market inactivity is not connection inactivity.** Do not restore
+timestamp-age reconnection logic. Restart existing bot processes to load this fix.
+
+## Code map and verification
+
+Paths below are under `src/polytrader/bot/lead_follower/` unless specified.
+
+| File | Responsibility |
+|---|---|
+| `config.py`, `__main__.py` | Settings validation, TOML and CLI |
+| `discovery.py` | Resolve explicit leader/follower families and YES/NO tokens |
+| `engine.py` | v2 candidates, filters, positions, P&L and summaries |
+| `features.py` | Burst statistics and observable book changes |
+| `feed.py` | Normalize leader YES trade messages |
+| `runner.py` | Subscription ownership, timestamps, timers and input recording |
+| `reporting.py` | Session files and lifecycle logging |
+| `replay.py`, `legacy_price_engine.py` | Version-aware replay and frozen v1 behavior |
+| `src/polytrader/orderbook/service.py` | Shared depth service with synchronous event hook |
+| `tests/test_lead_follower.py` | Detector, execution, feed and replay tests |
+
+The event hook runs after complete wire-message processing, before book notifications
+can coalesce. Disconnects reset trade history/warm-up and cancel pending entries;
+existing positions remain tracked. On healthy transport, invalid selected books
+block entries but still permit research candidates and exits on healthy own books.
+
+Last completed verification: **159 offline tests passed**, including the new
+feed-health regressions. Earlier CLI/example-config checks and a 10-second
+December/November live book smoke test passed; that earlier live test did not
+evaluate returns or expose the subsequently fixed quiet-snapshot issue.
+
+```text
+.venv\Scripts\python.exe -m unittest discover -s tests -q
+```
+
+Preserve research transparency: rejected candidates, losses, missing data and feed
+gaps must remain visible. Do not tune implementation to manufacture positive P&L.
+See [the usage guide](../../src/polytrader/bot/lead_follower/README.md) and
+[example configuration](../../src/polytrader/bot/config/lead_follower.example.toml).

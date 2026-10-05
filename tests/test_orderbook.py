@@ -317,6 +317,18 @@ class FakeSocket:
 
 @unittest.skipUnless(importlib.util.find_spec("websockets"), "Install live extra for transport tests")
 class HeartbeatTests(unittest.IsolatedAsyncioTestCase):
+    async def test_quiet_socket_survives_repeated_ping_pong_without_market_messages(self):
+        socket = FakeSocket()
+        with patch("websockets.asyncio.client.connect", return_value=socket), \
+                patch("polytrader.orderbook.client.HEARTBEAT_INTERVAL", .005), \
+                patch("polytrader.orderbook.client.HEARTBEAT_TIMEOUT", .1):
+            async with aclosing(OrderBookClient().stream(["x"])) as stream:
+                async with asyncio.timeout(2):
+                    while socket.sent.count("PING") < 5:
+                        self.assertIsNone(await anext(stream))
+                self.assertFalse(socket.closed)
+        self.assertTrue(socket.closed)
+
     async def test_subscription_initial_batch_and_application_heartbeat(self):
         socket = FakeSocket()
         socket.incoming.put_nowait(json.dumps([snapshot(), snapshot("yes-dec")]))

@@ -89,9 +89,20 @@ not a signal input in this version. Separate identical messages are retained bec
 transaction hashes do not uniquely identify fills. The feed is an observed trade
 sample, not an independently reconciled accounting of exchange-wide volume.
 
-Signals use local monotonic receipt times. Source timestamps are logged and checked
-against a configurable delay tolerance. Disconnects, malformed leader trades and
-late wire messages reset warm-up; delayed/invalid messages request resynchronization.
+Signals use local monotonic receipt times. Source and receipt timestamps are logged
+for analysis, never compared against a maximum age for connection health. Hours
+without trades, quote changes or book updates are normal. Even arbitrarily old
+otherwise valid book snapshots or trade timestamps do not cause reconnection.
+`max_feed_delay_seconds` / `--max-feed-delay-seconds` is deprecated and ignored,
+retained only for compatibility with older configs and recordings.
+
+**Market inactivity is not connection inactivity.** WebSocket ping/pong and
+transport state govern liveness. Actual disconnects, socket errors, failed
+heartbeats and malformed/unrecoverable stream state cause a pause, reconnection,
+fresh book synchronization and warm-up. Reconnect attempts continue with bounded
+backoff until shutdown. Quiet missing initial books stay ineligible for entries
+without disconnecting a healthy subscription. Book sequence validation remains:
+an out-of-order update is a consistency error, distinct from an old timestamp.
 All selected books must be valid before new paper entries resume. With a healthy
 transport, bursts are still logged if a selected book is unavailable, with an explicit
 rejection and null unavailable book features. Open positions remain tracked and can
@@ -177,7 +188,9 @@ line. Logging errors fail the run; they are never silently ignored.
 
 The event hook executes synchronously after complete wire-message processing, so
 trades and book changes are not lost to notification coalescing. Processing/logging
-must keep up with the feed; delay checks trigger resynchronization if it falls
-behind. There is no claim of lossless exchange delivery or millisecond execution.
+must keep up with the feed. Input logs preserve wire event type/source timestamp
+and local receipt time; normalized trades also record source-to-receipt seconds.
+These support latency analysis without an automatic age cutoff. There is no claim
+of lossless exchange delivery or millisecond execution.
 
 Tests: `python -m unittest discover -s tests -p test_lead_follower.py -v`.

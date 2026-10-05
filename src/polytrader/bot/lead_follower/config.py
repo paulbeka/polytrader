@@ -34,7 +34,7 @@ class Settings:
     sell_delay_seconds: float = 1
     cooldown_seconds: float = 60
     entry_timeout_seconds: float = 10
-    max_feed_delay_seconds: float = 10
+    max_feed_delay_seconds: float = 10  # Deprecated, ignored; retained for old configs/replay.
 
     def __post_init__(self):
         for f in fields(self):
