@@ -10,6 +10,7 @@ from polytrader.orderbook.models import BookSnapshot, Level
 from .config import Settings
 from .discovery import Family, Market
 from .engine import Engine
+from polytrader.ops.files import read_journal
 
 
 def read_book(raw):
@@ -40,17 +41,17 @@ def replay(directory, emit=lambda row: None):
     else:
         raise ValueError(f"Unsupported strategy version: {strategy_version}")
     books, now, utc, healthy = {}, 0, None, False
+    if not (directory / "inputs.jsonl").exists() and not (directory / "inputs" / "segments.json").exists():
+        raise ValueError("Recorded inputs are missing; replay unavailable")
     # Complete JSON lines only. A truncated file fails visibly rather than quietly
     # presenting an incomplete session as a completed experiment.
-    with (directory / "inputs.jsonl").open(encoding="utf-8") as f:
-        for line in f:
-            row = json.loads(line)
-            books.update({t: read_book(b) for t, b in row["books"].items()})
-            trade = row["trade"]
-            if trade:
-                for name in ("price", "size", "signed_size"):
-                    trade[name] = Decimal(trade[name])
-            now, utc, healthy = row["elapsed_seconds"], row["utc"], row["healthy"]
-            engine.observe(now, utc, books, trade=trade, healthy=healthy, reason=row["reason"])
+    for row in read_journal(directory, "inputs"):
+        books.update({t: read_book(b) for t, b in row["books"].items()})
+        trade = row["trade"]
+        if trade:
+            for name in ("price", "size", "signed_size"):
+                trade[name] = Decimal(trade[name])
+        now, utc, healthy = row["elapsed_seconds"], row["utc"], row["healthy"]
+        engine.observe(now, utc, books, trade=trade, healthy=healthy, reason=row["reason"])
     engine.finish(now, utc)
     return engine.summary(books, healthy=healthy)

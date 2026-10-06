@@ -335,6 +335,17 @@ tests/                  # Offline tests; no API calls
 
 Downloaded data, local environments, and secrets are ignored by Git.
 
+## Continuous bot operations
+
+The [operations guide](docs/bot_operations.md) includes a new-server quickstart,
+website bot management, daily/weekly reports, backups and independent Docker releases.
+On Ubuntu 24.04, start with `sudo sh deploy/bootstrap.sh --install-dependencies`,
+then use `polytraderctl` to import a release, add configs and deploy selected bots.
+The website provides Overview, Bots, Deployments and Reports views. For local research, start
+with `python -m polytrader.ops collect --root data --once`, then run
+`python -m streamlit run src/polytrader/ops/dashboard.py --server.address=127.0.0.1`.
+Install `.[live,ops]` first. Both bots remain paper/read-only research tools.
+
 ## IDEAS
 
 - Statistical arbitrage on events that are very similar 

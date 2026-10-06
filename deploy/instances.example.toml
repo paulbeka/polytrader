@@ -1,0 +1,9 @@
+image_repository = "ghcr.io/paulbeka/polytrader"
+
+[instances.lead-follower-ukraine]
+strategy = "lead_follower"
+config = "configs/lead-follower-ukraine.toml"
+
+[instances.time-arbitrage-ukraine]
+strategy = "time_arbitrage"
+config = "configs/time-arbitrage-ukraine.toml"

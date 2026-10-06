@@ -1,0 +1,47 @@
+name: polytrader-platform
+x-common: &common
+  image: ${POLYTRADER_IMAGE:?Set a pinned GHCR image digest}
+  init: true
+  restart: unless-stopped
+  user: "10001:10001"
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 45s
+  logging:
+    driver: local
+    options: {max-size: "10m", max-file: "3"}
+services:
+  collector:
+    <<: *common
+    command: [python, -m, polytrader.ops, collect, --root, /data]
+    volumes:
+      - "${POLYTRADER_ROOT:-/srv/polytrader}/data:/data"
+    env_file: [{path: .env, required: false}]
+    environment:
+      POLYTRADER_DATA: /data
+      POLYTRADER_INSTANCES: /data/ops/instances.json
+    healthcheck:
+      test: [CMD, python, -m, polytrader.ops, health, --collector]
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 4
+  dashboard:
+    <<: *common
+    command: [python, -m, streamlit, run, /app/src/polytrader/ops/dashboard.py, --server.address=0.0.0.0, --server.port=8501, --server.headless=true, --browser.gatherUsageStats=false]
+    volumes:
+      - "${POLYTRADER_ROOT:-/srv/polytrader}/data:/data:ro"
+      - "${POLYTRADER_ROOT:-/srv/polytrader}/run:/run/polytrader:ro"
+    ports: ["127.0.0.1:8501:8501"]
+    environment:
+      POLYTRADER_DATA: /data
+      POLYTRADER_CONTROL_SOCKET: /run/polytrader/control.sock
+      POLYTRADER_DEPLOY_URL: https://github.com/paulbeka/polytrader/actions/workflows/deploy.yaml
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 4

@@ -417,6 +417,14 @@ def ws_snapshot(token, price='.48', size='50'):
 
 class IntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_coalesced_reconnect_is_censored_even_with_live_snapshots(self):
+        opened, reopened = asyncio.Event(), asyncio.Event()
+        episode_ids = []
+        class ObservedSession(Session):
+            def emit(self, event, now, mono, **fields):
+                super().emit(event, now, mono, **fields)
+                if event == 'opportunity_open':
+                    episode_ids.append(fields['episode_id'])
+                    (opened if len(episode_ids) == 1 else reopened).set()
         class CoalescedService:
             def __init__(self,collection,**kwargs):
                 self.collection, self.continuity, self.healthy = collection, 0, True
@@ -427,15 +435,23 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             async def __aexit__(self,*args): self.healthy = False
             async def updates(self):
                 yield SimpleNamespace(book=self.collection.books['n-nov'])
-                await asyncio.sleep(.015)
+                await opened.wait()
                 self.continuity += 1  # Stale->live happened before consumer could read.
                 yield SimpleNamespace(book=self.collection.books['n-nov'])
                 await asyncio.Event().wait()
         with tempfile.TemporaryDirectory() as root:
             c = config(root,health_check_seconds=.005)
             ms = {k:replace(v,fetched_at=datetime.now(timezone.utc)) for k,v in metadata().items()}
-            directory = await run(c,resolve_universe(c,client_fixture()),ms,duration=.06,
-                                  service_factory=CoalescedService,printer=lambda _:None)
+            task = asyncio.create_task(run(c,resolve_universe(c,client_fixture()),ms,
+                                       service_factory=CoalescedService,session_factory=ObservedSession,
+                                       printer=lambda _:None))
+            try:
+                # Observe the behavior under test, rather than racing durable
+                # heartbeat fsyncs against a 60 ms wall-clock deadline.
+                await asyncio.wait_for(reopened.wait(), timeout=5)
+            finally:
+                task.cancel()
+                directory = await task
             rows = list(read_events(directory/'events.jsonl'))
             self.assertEqual(sum(r['event']=='opportunity_open' for r in rows),2)
             self.assertTrue(any(r.get('cause')=='feed_continuity_lost' and r['duration_censored'] for r in rows))

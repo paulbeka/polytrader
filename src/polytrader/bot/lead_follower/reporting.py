@@ -8,6 +8,7 @@ from pathlib import Path
 import uuid
 
 from .feed import utc_now
+from polytrader.ops.files import open_journal
 
 
 def json_default(value):
@@ -35,9 +36,9 @@ class Session:
             "trade_scope": "leader YES token only; feed-reported BUY/SELL direction",
             "trade_source": "https://docs.polymarket.com/market-data/realtime-data",
         }), encoding="utf-8")
-        self.events = (self.directory / "events.jsonl").open("x", encoding="utf-8", buffering=1)
+        self.events = open_journal(self.directory, "events")
         try:
-            self.inputs = (self.directory / "inputs.jsonl").open("x", encoding="utf-8", buffering=1)
+            self.inputs = open_journal(self.directory, "inputs")
         except BaseException:
             self.events.close()
             raise

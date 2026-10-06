@@ -1,5 +1,13 @@
 # lead_follower: development and operating context
 
+Operations update, 5 October 2026: the repository now includes a collector,
+Streamlit dashboard, daily reports, segmented journals, backup/restore and per-instance
+Docker deployment tooling. See [the operations guide](../../docs/bot_operations.md).
+Managed workers emit atomic status/checkpoint files every 10 seconds and current
+summaries every minute. Segmented replay requires the full input chain; interrupted
+positions remain unresolved and are not resumed. Existing CLI/single-file sessions
+remain supported. No VPS deployment has been performed by this repository change.
+
 Updated: 4 October 2026. Repository: `C:/Workspace/polytrader`.
 This is a handoff for continuing work on the bot. Check current source before
 changing behavior; do not assume a previous process is still running.

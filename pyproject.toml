@@ -13,15 +13,17 @@ dependencies = []
 [project.optional-dependencies]
 sandbox = ["pandas>=2.2", "pyarrow>=15", "matplotlib>=3.8", "ipykernel>=6.29"]
 live = ["websockets>=14,<18"]
+ops = ["streamlit>=1.65,<2", "boto3>=1.35,<2", "tzdata>=2025.2"]
 
 [project.scripts]
 polytrader = "polytrader.cli:main"
+polytraderctl = "polytrader.ops.control_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 "polytrader.orderbook" = ["viewer.html"]
-"polytrader.bot" = ["config/*.example.toml"]
+"polytrader.bot" = ["config/*.example.toml", "config/example.time_arbitrage.toml"]
 "polytrader.bot.time_arbitrage" = ["README.md"]
 "polytrader.bot.lead_follower" = ["README.md"]

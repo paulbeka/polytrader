@@ -1,8 +1,9 @@
 # Polytrader: single-server bot deployment and research dashboard
 
-Plan dated 5 October 2026. This document proposes implementation; it does not deploy
-anything or change the bots. Scope: private, single-user research, paper trading and
-read-only opportunity detection.
+Plan dated 5 October 2026. Repository implementation is now available; follow the
+[operations guide](bot_operations.md) for setup, commands and verification limits.
+Host provisioning and live deployment remain operator setup. Scope: private,
+single-user research, paper trading and read-only opportunity detection.
 
 ## Recommended stack
 

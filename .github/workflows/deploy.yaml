@@ -1,0 +1,51 @@
+name: Manage bot instance
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [deploy, rollback, stop, status]
+        default: deploy
+      instance:
+        description: Allowlisted instance name on the host
+        required: true
+      image:
+        description: Full GHCR image with sha256 digest (deploy only)
+        required: false
+permissions:
+  contents: read
+concurrency:
+  group: bot-deployment-${{ inputs.instance }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Send constrained deployment request
+        env:
+          ACTION: ${{ inputs.action }}
+          INSTANCE: ${{ inputs.instance }}
+          IMAGE: ${{ inputs.image }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ACTION" =~ ^(deploy|rollback|stop|status)$ ]]
+          [[ "$INSTANCE" =~ ^[a-z][a-z0-9-]{0,47}$ ]]
+          [[ "$SSH_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]
+          [[ "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ ]]
+          if [[ "$ACTION" == deploy ]]; then
+            [[ "$IMAGE" =~ ^ghcr\.io/paulbeka/polytrader@sha256:[a-f0-9]{64}$ ]]
+            request="$ACTION $INSTANCE $IMAGE"
+          else
+            request="$ACTION $INSTANCE"
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" "$request"

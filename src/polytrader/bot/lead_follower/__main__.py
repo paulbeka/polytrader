@@ -13,6 +13,7 @@ from .discovery import prepare
 from .replay import replay
 from .reporting import dumps
 from .runner import describe, run
+from polytrader.ops.runtime import until_stopped
 
 
 def positive_seconds(value):
@@ -65,9 +66,9 @@ def main(argv=None):
         print(str(exc), file=sys.stderr)
         return 2
     try:
-        asyncio.run(run(config, families, collection, duration=args.duration))
+        asyncio.run(until_stopped(run(config, families, collection, duration=args.duration)))
         return 0
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         return 0
     except Exception as exc:
         print(f"Lead/follower runtime error: {exc}", file=sys.stderr)

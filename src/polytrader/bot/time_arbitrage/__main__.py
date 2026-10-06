@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import math
 import sys
+from polytrader.ops.runtime import until_stopped
 
 from polytrader.data import DataError
 from .config import load_config
@@ -38,7 +39,7 @@ def main(argv=None):
         print("Validation does not prove the chain's logical implication. No stream opened.")
         return 0 if all(m.supported for m in metadata.values()) else 2
     try:
-        directory = asyncio.run(run(config, universe, metadata, duration=args.duration))
+        directory = asyncio.run(until_stopped(run(config, universe, metadata, duration=args.duration)))
         print(f"Session saved: {directory}")
         return 0
     except KeyboardInterrupt:

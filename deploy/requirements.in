@@ -1,0 +1,4 @@
+websockets>=14,<18
+streamlit>=1.65,<2
+boto3>=1.35,<2
+tzdata>=2025.2

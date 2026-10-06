@@ -7,6 +7,7 @@ from polytrader.orderbook.service import OrderBookService
 from .engine import Engine
 from .feed import parse_trade, utc_now
 from .reporting import Session
+from polytrader.ops.runtime import Runtime
 
 
 def describe(families):
@@ -23,6 +24,7 @@ async def run(config, families, collection, *, duration=None, client=None):
     started = loop.time()
     session = Session(config.output_dir, config, families, collection)
     engine = Engine(families, config.settings, session.emit)
+    runtime = Runtime(session.directory, "lead_follower", config)
     previous = {}
     continuity = 0
     termination = "duration"
@@ -70,6 +72,10 @@ async def run(config, families, collection, *, duration=None, client=None):
                 # Timers handle sell availability, latency, timeouts and quiet books.
                 # No observation replaces or invents a quote: current healthy depth persists.
                 observe(None, service)
+                if loop.time() >= runtime.next_status:
+                    runtime.publish(engine.summary(collection.books, healthy=last_health), service,
+                                    warming_up=engine.started is None or
+                                    loop.time() - started - engine.started < config.settings.warmup_seconds)
                 await asyncio.sleep(min(.1, max(0, duration - (loop.time() - started)))
                                     if duration is not None else .1)
             # Capture marks before normal context shutdown invalidates the feed.
@@ -95,6 +101,8 @@ async def run(config, families, collection, *, duration=None, client=None):
                 for p in final["open_positions"]:
                     p["liquidation_pnl"] = marks.get(p["id"])
             session.finish({**final, "termination": termination, "elapsed_seconds": loop.time() - started})
+            runtime.publish(final, force=True)
+            runtime.finish(termination)
             print(f"Closed paper P&L (fees excluded): {final['closed_pnl']}; "
                   f"open positions: {len(final['open_positions'])}", flush=True)
         finally:

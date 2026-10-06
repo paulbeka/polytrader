@@ -13,6 +13,7 @@ from .detector import evaluate
 from .discovery import ScannerClient, resolve_universe
 from .models import Evaluation
 from .reporting import Session, Tracker, encode
+from polytrader.ops.runtime import Runtime
 
 
 def prepare(config, client=None):
@@ -76,6 +77,7 @@ async def run(config, universe, metadata, *, duration=None, client=None,
     session = session_factory(config.scanner.output_dir, manifest(config, universe, metadata),
                               start_mono=started, printer=printer)
     tracker = Tracker(session, universe.pairs, config.scanner.update_log_seconds)
+    runtime = Runtime(session.directory, "time_arbitrage", config)
     wake = asyncio.Event()
     dirty = set(universe.token_ids)
     consumer = refreshing = None
@@ -100,7 +102,7 @@ async def run(config, universe, metadata, *, duration=None, client=None,
             consumer = asyncio.create_task(consume(), name="time-arbitrage-updates")
             previous_health, continuity = None, service.continuity
             next_health = next_summary = started
-            next_refresh = started + config.costs.refresh_seconds
+            next_refresh = loop.time() + config.costs.refresh_seconds
             stop_at = loop.time() + duration if duration is not None else float("inf")
             while True:
                 mono, now = loop.time(), datetime.now(timezone.utc)
@@ -141,6 +143,7 @@ async def run(config, universe, metadata, *, duration=None, client=None,
                     tracker.accept(pair, evaluate(pair, books, metadata, config.scanner,
                                                  config.costs, now, healthy=service.healthy), now, mono)
                 tracker.flush(now, mono)
+                runtime.publish(tracker.summary(), service)
                 if mono >= next_summary:
                     summary = {**tracker.summary(), "connection_healthy": service.healthy,
                                "continuity": continuity}
@@ -148,7 +151,7 @@ async def run(config, universe, metadata, *, duration=None, client=None,
                     printer("HEALTH " + encode(summary))
                     next_summary = mono + config.scanner.summary_seconds
                 wake.clear()
-                timeout = min(next_health, next_summary, stop_at,
+                timeout = min(next_health, next_summary, stop_at, runtime.next_status,
                               tracker.next_flush(),
                               next_refresh if refreshing is None else float("inf")) - loop.time()
                 with suppress(TimeoutError):
@@ -170,6 +173,8 @@ async def run(config, universe, metadata, *, duration=None, client=None,
             tracker.close_all(now, mono, "runtime_error" if termination == "runtime_error" else "shutdown")
             session.finish({**tracker.summary(), "termination_reason": termination,
                             "elapsed_seconds": mono - started}, now, mono)
+            runtime.publish(tracker.summary(), force=True)
+            runtime.finish(termination)
         finally:
             session.close()
     return session.directory

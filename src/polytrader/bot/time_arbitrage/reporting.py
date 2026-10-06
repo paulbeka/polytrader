@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import uuid
+from polytrader.ops.files import open_journal, read_journal
 
 
 def json_value(value):
@@ -30,6 +31,9 @@ def encode(value):
 
 def read_events(path):
     """Read complete JSONL records; ignore only an incomplete final line after a crash."""
+    if not Path(path).exists() and Path(path).parent.joinpath("events", "segments.json").exists():
+        yield from read_journal(Path(path).parent, "events", strict=False)
+        return
     with Path(path).open("rb") as stream:
         for line in stream:
             if not line.endswith(b"\n"):
@@ -51,7 +55,7 @@ class Session:
                                  "detection_only": True, **manifest}) + "\n")
             stream.flush()
             os.fsync(stream.fileno())
-        self.stream = (self.directory / "events.jsonl").open("x", encoding="utf-8", newline="\n")
+        self.stream = open_journal(self.directory, "events")
 
     def emit(self, event, now, mono, **fields):
         self.sequence += 1
